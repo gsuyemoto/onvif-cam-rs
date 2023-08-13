@@ -39,9 +39,9 @@ async fn main() -> Result<()> {
     // main thing we need here is the xaddrs
     // which is an HTTP URL to which we call later
     // for "device management"
-    let xaddrs = parse_soap_find(socket_buffer, "XAddrs");
+    let xaddrs = parse_soap_find(socket_buffer, Some("XAddrs"));
 
-    // show_soap(&socket_buffer);
+    // parse_soap_find(&socket_buffer, None);
 
     // after discovery, the xaddrs in the reply from each device
     // will reveal the url needed for device management
@@ -56,7 +56,7 @@ async fn main() -> Result<()> {
     // let soap_message = get_message(Messages::DeviceInfo);
 
     // let response_bytes = onvif_message(&xaddrs, soap_message).await?;
-    // show_soap(response_bytes);
+    // parse_soap_find(response_bytes, None);
 
     //------------------- GET DEVICE CAPABILITIES
     //-------------------
@@ -65,7 +65,7 @@ async fn main() -> Result<()> {
     // let soap_message = get_message(Messages::Capabilities);
 
     // let response_bytes = onvif_message(&xaddrs, soap_message).await?;
-    // show_soap(response_bytes);
+    // parse_soap_find(response_bytes, None);
 
     //------------------- GET DEVICE PROFILES
     //-------------------
@@ -74,7 +74,7 @@ async fn main() -> Result<()> {
     // let soap_message = get_message(Messages::Profiles);
 
     // let response_bytes = onvif_message(&xaddrs, soap_message).await?;
-    // show_soap(&response_bytes);
+    // parse_soap_find(&response_bytes, None);
 
     //------------------- GET STREAM URI
     //-------------------
@@ -83,7 +83,7 @@ async fn main() -> Result<()> {
     let soap_message = get_message(Messages::GetStreamURI);
 
     let response_bytes = onvif_message(&xaddrs, soap_message).await?;
-    let streaming_uri = parse_soap_find(response_bytes, "Uri");
+    let streaming_uri = parse_soap_find(response_bytes, Some("Uri"));
 
     println!("uri: {streaming_uri}");
 
@@ -183,59 +183,49 @@ fn discover_devices(socket: &UdpSocket, send_ip: &str, send_port: u16, message: 
     socket_buffer.into()
 }
 
-fn show_soap(socket_buffer: &Bytes) {
-    let buffer = BufReader::new(socket_buffer.as_ref());
-    let parser = EventReader::new(buffer);
-
-    let mut depth = 0;
-    for e in parser {
-        match e {
-            Ok(XmlEvent::StartElement { name, .. }) => {
-                depth += 1;
-                println!("{:spaces$}+{name}", "", spaces = depth * 2);
-            }
-            Ok(XmlEvent::EndElement { name, .. }) => {
-                depth -= 1;
-                println!("{:spaces$}+{name}", "", spaces = depth * 2);
-            }
-            Ok(XmlEvent::Characters(chars)) => {
-                println!("{chars}");
-            }
-            Err(e) => {
-                eprintln!("Error: {e}");
-                break;
-            }
-            // There's more: https://docs.rs/xml-rs/latest/xml/reader/enum.XmlEvent.html
-            _ => {}
-        }
-    }
-}
-
-fn parse_soap_find(socket_buffer: Bytes, find: &str) -> String {
+fn parse_soap_find(socket_buffer: Bytes, find: Option<&str>) -> String {
     // get XAddrs
     let mut element_found = String::new();
     let mut element_start = false;
 
     let buffer = BufReader::new(socket_buffer.as_ref());
     let parser = EventReader::new(buffer);
+    let mut depth = 0;
 
     for e in parser {
         match e {
-            Ok(XmlEvent::StartElement { name, .. }) => {
-                if name.local_name == find {
-                    element_start = true
+            Ok(XmlEvent::StartElement { name, .. }) => match find {
+                Some(el_to_find) => {
+                    if name.local_name == el_to_find {
+                        element_start = true;
+                    }
                 }
-            }
-            Ok(XmlEvent::EndElement { name, .. }) => {
-                if name.local_name == find {
-                    element_start = false
+                None => {
+                    depth += 1;
+                    println!("{:spaces$}+{name}", "", spaces = depth * 2);
                 }
-            }
-            Ok(XmlEvent::Characters(chars)) => {
-                if element_start {
-                    element_found = chars;
+            },
+            Ok(XmlEvent::EndElement { name, .. }) => match find {
+                Some(el_to_find) => {
+                    if name.local_name == el_to_find {
+                        element_start = false;
+                    }
                 }
-            }
+                None => {
+                    depth -= 1;
+                    println!("{:spaces$}+{name}", "", spaces = depth * 2);
+                }
+            },
+            Ok(XmlEvent::Characters(chars)) => match find {
+                Some(_) => {
+                    if element_start {
+                        element_found = chars;
+                    }
+                }
+                None => {
+                    println!("{chars}");
+                }
+            },
             Err(e) => {
                 eprintln!("Error: {e}");
                 break;
