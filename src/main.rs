@@ -1,5 +1,8 @@
 use anyhow::Result;
 use bytes::{Bytes, BytesMut};
+use opencv::highgui::{imshow, wait_key};
+use opencv::prelude::*;
+use opencv::videoio::{VideoCapture, CAP_FFMPEG};
 use reqwest::{Client, RequestBuilder};
 use std::io::BufReader;
 use std::net::{SocketAddr, UdpSocket};
@@ -12,6 +15,7 @@ enum Messages {
     Capabilities,
     DeviceInfo,
     Profiles,
+    GetStreamURI,
 }
 
 #[tokio::main]
@@ -35,32 +39,34 @@ async fn main() -> Result<()> {
     // main thing we need here is the xaddrs
     // which is an HTTP URL to which we call later
     // for "device management"
+    parse_soap(&socket_buffer);
+
     let xaddrs = parse_xaddrs(socket_buffer);
-
-    println!("XAddrs: {xaddrs}");
-
-    //------------------- GET DEVICE INFO
-    //-------------------
-
-    println!("----------------------- DEVICE INFO -----------------------");
-    let soap_message = get_message(Messages::DeviceInfo);
+    // println!("XAddrs: {xaddrs}");
 
     // after discovery, the xaddrs in the reply from each device
     // will reveal the url needed for device management
     // here the communication switches to requests sent via
     // HTTP, but still using SOAP
     // we are going to use reqwest to create HTTP requests
-    let response_bytes = onvif_message(&xaddrs, soap_message).await?;
-    parse_soap(response_bytes);
+
+    //------------------- GET DEVICE INFO
+    //-------------------
+
+    // println!("----------------------- DEVICE INFO -----------------------");
+    // let soap_message = get_message(Messages::DeviceInfo);
+
+    // let response_bytes = onvif_message(&xaddrs, soap_message).await?;
+    // parse_soap(response_bytes);
 
     //------------------- GET DEVICE CAPABILITIES
     //-------------------
 
-    println!("----------------------- DEVICE CAPABILITIES -----------------------");
-    let soap_message = get_message(Messages::Capabilities);
+    // println!("----------------------- DEVICE CAPABILITIES -----------------------");
+    // let soap_message = get_message(Messages::Capabilities);
 
-    let response_bytes = onvif_message(&xaddrs, soap_message).await?;
-    parse_soap(response_bytes);
+    // let response_bytes = onvif_message(&xaddrs, soap_message).await?;
+    // parse_soap(response_bytes);
 
     //------------------- GET DEVICE PROFILES
     //-------------------
@@ -69,7 +75,40 @@ async fn main() -> Result<()> {
     let soap_message = get_message(Messages::Profiles);
 
     let response_bytes = onvif_message(&xaddrs, soap_message).await?;
-    parse_soap(response_bytes);
+    parse_soap(&response_bytes);
+
+    //------------------- GET STREAM URI
+    //-------------------
+
+    println!("----------------------- STREAM URI ----------------------");
+    let soap_message = get_message(Messages::GetStreamURI);
+
+    let response_bytes = onvif_message(&xaddrs, soap_message).await?;
+    parse_soap(&response_bytes);
+
+    println!("----------------------- OPEN CAMERA STREAM! ----------------------");
+    // Initialize OpenCV
+    opencv::highgui::named_window("Video", 1)?;
+
+    // Open the RTSP stream
+    let url = "rtsp://admin:admin@192.168.86.138:554/11";
+    let mut capture = VideoCapture::from_file(url, CAP_FFMPEG)?;
+
+    // Capture and display video frames
+    let mut frame = Mat::default();
+
+    loop {
+        if capture.read(&mut frame)? {
+            imshow("Video", &frame)?;
+
+            let key = wait_key(10)?;
+            if key > 0 && key != 255 {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
 
     Ok(())
 }
@@ -144,7 +183,7 @@ fn discover_devices(socket: &UdpSocket, send_ip: &str, send_port: u16, message: 
     socket_buffer.into()
 }
 
-fn parse_soap(socket_buffer: Bytes) {
+fn parse_soap(socket_buffer: &Bytes) {
     let buffer = BufReader::new(socket_buffer.as_ref());
     let parser = EventReader::new(buffer);
 
@@ -274,6 +313,24 @@ fn get_message(msg_type: Messages) -> String {
                     <trt:GetProfiles/>
                 </soap:Body>
             </s:Envelope>
+        "#
+        ),
+        Messages::GetStreamURI => format!(
+            r#"
+            <soap:Envelope
+                xmlns:soap="http://www.w3.org/2003/05/soap-envelope"
+                xmlns:trt="http://www.onvif.org/ver10/media/wsdl">
+                <soap:Body>
+                    <trt:GetStreamUri>
+                        <trt:StreamSetup>
+                            <tt:Stream>RTP-multicast</tt:Stream>
+                            <tt:Transport>
+                                <tt:Protocol>RTSP</tt:Protocol>
+                            </tt:Transport>
+                        </trt:StreamSetup>
+                    </trt:GetStreamUri>
+                </soap:Body>
+            </soap:Envelope>
         "#
         ),
     }
