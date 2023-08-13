@@ -10,6 +10,7 @@ enum Messages {
     Discovery,
     Capabilities,
     DeviceInfo,
+    Profiles,
 }
 
 const BIND_TO_ANY_IP: &'static str = "0.0.0.0:0";
@@ -42,6 +43,7 @@ async fn main() -> Result<()> {
     //------------------- GET DEVICE INFO
     //-------------------
 
+    println!("----------------------- DEVICE INFO -----------------------");
     let soap_message = get_message(Messages::DeviceInfo);
 
     // after discovery, the xaddrs in the reply from each device
@@ -50,26 +52,25 @@ async fn main() -> Result<()> {
     // HTTP, but still using SOAP
     // we are going to use reqwest to create HTTP requests
     let response_bytes = onvif_message(&xaddrs, soap_message).await?;
-    let response = String::from_utf8_lossy(response_bytes.as_ref());
-
-    println!("Received response: {}", response);
-    println!("----------------------- DEVICE INFO -----------------------");
+    parse_soap(response_bytes);
 
     //------------------- GET DEVICE CAPABILITIES
     //-------------------
 
+    println!("----------------------- DEVICE CAPABILITIES -----------------------");
     let soap_message = get_message(Messages::Capabilities);
 
-    // after discovery, the xaddrs in the reply from each device
-    // will reveal the url needed for device management
-    // here the communication switches to requests sent via
-    // HTTP, but still using SOAP
-    // we are going to use reqwest to create HTTP requests
     let response_bytes = onvif_message(&xaddrs, soap_message).await?;
-    let response = String::from_utf8_lossy(response_bytes.as_ref());
+    parse_soap(response_bytes);
 
-    println!("Received response: {}", response);
-    println!("----------------------- DEVICE CAPABILITIES -----------------------");
+    //------------------- GET DEVICE PROFILES
+    //-------------------
+
+    println!("----------------------- DEVICE PROFILES -----------------------");
+    let soap_message = get_message(Messages::Profiles);
+
+    let response_bytes = onvif_message(&xaddrs, soap_message).await?;
+    parse_soap(response_bytes);
 
     Ok(())
 }
@@ -113,6 +114,34 @@ fn discover_devices(socket: &UdpSocket, send_ip: &str, send_port: u16, message: 
     }
 
     socket_buffer.into()
+}
+
+fn parse_soap(socket_buffer: Bytes) {
+    let buffer = BufReader::new(socket_buffer.as_ref());
+    let parser = EventReader::new(buffer);
+
+    let mut depth = 0;
+    for e in parser {
+        match e {
+            Ok(XmlEvent::StartElement { name, .. }) => {
+                depth += 1;
+                println!("{:spaces$}+{name}", "", spaces = depth * 2);
+            }
+            Ok(XmlEvent::EndElement { name, .. }) => {
+                depth -= 1;
+                println!("{:spaces$}+{name}", "", spaces = depth * 2);
+            }
+            Ok(XmlEvent::Characters(chars)) => {
+                println!("{chars}");
+            }
+            Err(e) => {
+                eprintln!("Error: {e}");
+                break;
+            }
+            // There's more: https://docs.rs/xml-rs/latest/xml/reader/enum.XmlEvent.html
+            _ => {}
+        }
+    }
 }
 
 fn parse_xaddrs(socket_buffer: Bytes) -> String {
@@ -206,6 +235,16 @@ fn get_message(msg_type: Messages) -> String {
                 <s:Body>
                     <tds:GetDeviceInformation/>
                 </s:Body>
+            </s:Envelope>
+        "#
+        ),
+        Messages::Profiles => format!(
+            r#"
+            <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"
+                         xmlns:tds="http://www.onvif.org/ver10/device/wsdl">
+                <soap:Body>
+                    <trt:GetProfiles/>
+                </soap:Body>
             </s:Envelope>
         "#
         ),
