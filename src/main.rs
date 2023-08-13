@@ -39,10 +39,9 @@ async fn main() -> Result<()> {
     // main thing we need here is the xaddrs
     // which is an HTTP URL to which we call later
     // for "device management"
-    parse_soap(&socket_buffer);
+    let xaddrs = parse_soap_find(socket_buffer, "XAddrs");
 
-    let xaddrs = parse_xaddrs(socket_buffer);
-    // println!("XAddrs: {xaddrs}");
+    // show_soap(&socket_buffer);
 
     // after discovery, the xaddrs in the reply from each device
     // will reveal the url needed for device management
@@ -57,7 +56,7 @@ async fn main() -> Result<()> {
     // let soap_message = get_message(Messages::DeviceInfo);
 
     // let response_bytes = onvif_message(&xaddrs, soap_message).await?;
-    // parse_soap(response_bytes);
+    // show_soap(response_bytes);
 
     //------------------- GET DEVICE CAPABILITIES
     //-------------------
@@ -66,16 +65,16 @@ async fn main() -> Result<()> {
     // let soap_message = get_message(Messages::Capabilities);
 
     // let response_bytes = onvif_message(&xaddrs, soap_message).await?;
-    // parse_soap(response_bytes);
+    // show_soap(response_bytes);
 
     //------------------- GET DEVICE PROFILES
     //-------------------
 
-    println!("----------------------- DEVICE PROFILES -----------------------");
-    let soap_message = get_message(Messages::Profiles);
+    // println!("----------------------- DEVICE PROFILES -----------------------");
+    // let soap_message = get_message(Messages::Profiles);
 
-    let response_bytes = onvif_message(&xaddrs, soap_message).await?;
-    parse_soap(&response_bytes);
+    // let response_bytes = onvif_message(&xaddrs, soap_message).await?;
+    // show_soap(&response_bytes);
 
     //------------------- GET STREAM URI
     //-------------------
@@ -84,15 +83,16 @@ async fn main() -> Result<()> {
     let soap_message = get_message(Messages::GetStreamURI);
 
     let response_bytes = onvif_message(&xaddrs, soap_message).await?;
-    parse_soap(&response_bytes);
+    let streaming_uri = parse_soap_find(response_bytes, "Uri");
+
+    println!("uri: {streaming_uri}");
 
     println!("----------------------- OPEN CAMERA STREAM! ----------------------");
     // Initialize OpenCV
     opencv::highgui::named_window("Video", 1)?;
 
     // Open the RTSP stream
-    let url = "rtsp://admin:admin@192.168.86.138:554/11";
-    let mut capture = VideoCapture::from_file(url, CAP_FFMPEG)?;
+    let mut capture = VideoCapture::from_file(&streaming_uri, CAP_FFMPEG)?;
 
     // Capture and display video frames
     let mut frame = Mat::default();
@@ -183,7 +183,7 @@ fn discover_devices(socket: &UdpSocket, send_ip: &str, send_port: u16, message: 
     socket_buffer.into()
 }
 
-fn parse_soap(socket_buffer: &Bytes) {
+fn show_soap(socket_buffer: &Bytes) {
     let buffer = BufReader::new(socket_buffer.as_ref());
     let parser = EventReader::new(buffer);
 
@@ -211,10 +211,10 @@ fn parse_soap(socket_buffer: &Bytes) {
     }
 }
 
-fn parse_xaddrs(socket_buffer: Bytes) -> String {
+fn parse_soap_find(socket_buffer: Bytes, find: &str) -> String {
     // get XAddrs
-    let mut xaddrs = String::new();
-    let mut xaddrs_start = false;
+    let mut element_found = String::new();
+    let mut element_start = false;
 
     let buffer = BufReader::new(socket_buffer.as_ref());
     let parser = EventReader::new(buffer);
@@ -222,18 +222,18 @@ fn parse_xaddrs(socket_buffer: Bytes) -> String {
     for e in parser {
         match e {
             Ok(XmlEvent::StartElement { name, .. }) => {
-                if name.local_name == "XAddrs".to_owned() {
-                    xaddrs_start = true
+                if name.local_name == find {
+                    element_start = true
                 }
             }
             Ok(XmlEvent::EndElement { name, .. }) => {
-                if name.local_name == "XAddrs".to_owned() {
-                    xaddrs_start = false
+                if name.local_name == find {
+                    element_start = false
                 }
             }
             Ok(XmlEvent::Characters(chars)) => {
-                if xaddrs_start {
-                    xaddrs = chars;
+                if element_start {
+                    element_found = chars;
                 }
             }
             Err(e) => {
@@ -245,7 +245,7 @@ fn parse_xaddrs(socket_buffer: Bytes) -> String {
         }
     }
 
-    xaddrs
+    element_found
 }
 
 fn get_message(msg_type: Messages) -> String {
