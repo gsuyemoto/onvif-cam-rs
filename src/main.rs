@@ -1,5 +1,5 @@
 use anyhow::Result;
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use reqwest::{Client, RequestBuilder};
 use std::io::BufReader;
 use std::net::{SocketAddr, UdpSocket};
@@ -30,16 +30,16 @@ async fn main() -> Result<()> {
     let send_ip = "239.255.255.250";
     let send_port = 3702;
 
-    let (socket_buffer, size_msg) = discover_devices(&socket, send_ip, send_port, soap_message);
+    let socket_buffer = discover_devices(&socket, send_ip, send_port, soap_message);
 
     // main thing we need here is the xaddrs
     // which is an HTTP URL to which we call later
     // for "device management"
-    let xaddrs = parse_xaddrs(socket_buffer, size_msg);
+    let xaddrs = parse_xaddrs(socket_buffer);
 
     println!("XAddrs: {xaddrs}");
 
-    //------------------- GET DEVICE CAPABILITIES
+    //------------------- GET DEVICE INFO
     //-------------------
 
     let soap_message = get_message(Messages::DeviceInfo);
@@ -49,15 +49,32 @@ async fn main() -> Result<()> {
     // here the communication switches to requests sent via
     // HTTP, but still using SOAP
     // we are going to use reqwest to create HTTP requests
-    let response_bytes = onvif_message(xaddrs, soap_message).await?;
+    let response_bytes = onvif_message(&xaddrs, soap_message).await?;
     let response = String::from_utf8_lossy(response_bytes.as_ref());
 
     println!("Received response: {}", response);
+    println!("----------------------- DEVICE INFO -----------------------");
+
+    //------------------- GET DEVICE CAPABILITIES
+    //-------------------
+
+    let soap_message = get_message(Messages::Capabilities);
+
+    // after discovery, the xaddrs in the reply from each device
+    // will reveal the url needed for device management
+    // here the communication switches to requests sent via
+    // HTTP, but still using SOAP
+    // we are going to use reqwest to create HTTP requests
+    let response_bytes = onvif_message(&xaddrs, soap_message).await?;
+    let response = String::from_utf8_lossy(response_bytes.as_ref());
+
+    println!("Received response: {}", response);
+    println!("----------------------- DEVICE CAPABILITIES -----------------------");
 
     Ok(())
 }
 
-async fn onvif_message(device_url: String, soap_msg: String) -> Result<Bytes> {
+async fn onvif_message(device_url: &str, soap_msg: String) -> Result<Bytes> {
     let client = Client::new();
     let request: RequestBuilder = client
         .post(device_url)
@@ -71,12 +88,7 @@ async fn onvif_message(device_url: String, soap_msg: String) -> Result<Bytes> {
     Ok(response_bytes)
 }
 
-fn discover_devices(
-    socket: &UdpSocket,
-    send_ip: &str,
-    send_port: u16,
-    message: String,
-) -> ([u8; 4096], usize) {
+fn discover_devices(socket: &UdpSocket, send_ip: &str, send_port: u16, message: String) -> Bytes {
     // Destination address
     let destination = format!("{}:{}", send_ip, send_port);
     let destination: SocketAddr = destination.parse().unwrap();
@@ -90,27 +102,25 @@ fn discover_devices(
     }
 
     // Receive response
-    let mut socket_buffer = [0; 4096];
+    let mut socket_buffer = BytesMut::from(&[0; 4096][..]);
     let success = socket.recv_from(&mut socket_buffer);
-    let mut size_msg: usize = 0;
 
     match success {
         Ok((size, _)) => {
-            size_msg = size;
             println!("Successfully received message of size {size}")
         }
         Err(e) => eprintln!("Error receiving {e}"),
     }
 
-    (socket_buffer, size_msg)
+    socket_buffer.into()
 }
 
-fn parse_xaddrs(socket_buffer: [u8; 4096], size_msg: usize) -> String {
+fn parse_xaddrs(socket_buffer: Bytes) -> String {
     // get XAddrs
     let mut xaddrs = String::new();
     let mut xaddrs_start = false;
 
-    let buffer = BufReader::new(&socket_buffer[..size_msg]);
+    let buffer = BufReader::new(socket_buffer.as_ref());
     let parser = EventReader::new(buffer);
 
     for e in parser {
@@ -166,29 +176,29 @@ fn get_message(msg_type: Messages) -> String {
             </s:Envelope>"#
         ),
 
-        // Messages::Capabilities => format!(
-        //     r#"<Envelope xmlns="http://www.w3.org/2003/05/soap-envelope"
-        //                  xmlns:tds="http://www.onvif.org/ver10/device/wsdl">
-        //        <Header/>
-        //        <Body>
-        //            <tds:GetCapabilities>
-        //                <tds:Category>All</tds:Category>
-        //            </tds:GetCapabilities>
-        //        </Body>
-        //     </Envelope>"#
-        // ),
         Messages::Capabilities => format!(
-            r#"
-            <Envelope xmlns="http://www.w3.org/2003/05/soap-envelope" xmlns:trt="http://www.onvif.org/ver10/media/wsdl">
-                <Header/>
-                <Body>
-                    <trt:GetCapabilities>
-                        <trt:Category>Media</trt:Category>
-                    </trt:GetCapabilities>
-                </Body>
-            </Envelope>
-        "#
+            r#"<Envelope xmlns="http://www.w3.org/2003/05/soap-envelope"
+                         xmlns:tds="http://www.onvif.org/ver10/device/wsdl">
+               <Header/>
+               <Body>
+                   <tds:GetCapabilities>
+                       <tds:Category>All</tds:Category>
+                   </tds:GetCapabilities>
+               </Body>
+            </Envelope>"#
         ),
+        // Messages::Capabilities => format!(
+        //     r#"
+        //     <Envelope xmlns="http://www.w3.org/2003/05/soap-envelope" xmlns:trt="http://www.onvif.org/ver10/media/wsdl">
+        //         <Header/>
+        //         <Body>
+        //             <trt:GetCapabilities>
+        //                 <trt:Category>Media</trt:Category>
+        //             </trt:GetCapabilities>
+        //         </Body>
+        //     </Envelope>
+        // "#
+        // ),
         Messages::DeviceInfo => format!(
             r#"
             <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"
