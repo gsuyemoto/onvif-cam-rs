@@ -5,6 +5,7 @@ use std::io::BufReader;
 use std::net::{SocketAddr, UdpSocket};
 use xml::reader::{EventReader, XmlEvent};
 
+/// All of the ONVIF requests that this program supports
 #[derive(Debug)]
 enum Messages {
     Discovery,
@@ -13,11 +14,9 @@ enum Messages {
     Profiles,
 }
 
-const BIND_TO_ANY_IP: &'static str = "0.0.0.0:0";
-
 #[tokio::main]
 async fn main() -> Result<()> {
-    let socket = UdpSocket::bind(BIND_TO_ANY_IP)?;
+    let socket = UdpSocket::bind("0.0.0.0:0")?;
 
     //------------------- DISCOVER ALL ONVIF DEVICES
     //-------------------
@@ -75,6 +74,21 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Returns the response received when sending an ONVIF request to a
+/// device found via device discovery
+/// The reponse is SOAP formatted as byte array
+///
+/// # Arguments
+///
+/// * `device_url` - The URL provided in the xaddrs via device discovery
+/// * `soap_msg` - The SOAP request formatted as a String
+///
+/// # Examples
+///
+/// ```
+/// let soap_message = "<s:Envelope xmlns:s='http://www.w3.org/2003/05/soap-envelope'><soap:Body><trt:GetProfiles/></soap:Body></s:Envelope>";
+/// let response_bytes = onvif_message("http://192.168.1.100:8080/onvif/device_services", soap_message.to_string());
+/// ```
 async fn onvif_message(device_url: &str, soap_msg: String) -> Result<Bytes> {
     let client = Client::new();
     let request: RequestBuilder = client
@@ -89,6 +103,20 @@ async fn onvif_message(device_url: &str, soap_msg: String) -> Result<Bytes> {
     Ok(response_bytes)
 }
 
+/// Sends a multicast request via raw udpsocket on LAN.
+/// Request is in the form of a SOAP message.
+/// Response is also a SOAP message that will contain
+/// the xaddrs of the all the responding devices. Use
+/// this URL to subsequently make calls via HTTP requests
+/// to send commands to the device using ONVIF protocol.
+///
+/// # Arguments
+///
+/// * `socket` - Pass in a udpsocket to be used to send request
+/// * `send_ip` - The broadcast IP which is normally "239.255.255.250"
+/// * `send_port` - The port to send request, normally 3702
+/// * `message` - The SOAP message request as a String
+///
 fn discover_devices(socket: &UdpSocket, send_ip: &str, send_port: u16, message: String) -> Bytes {
     // Destination address
     let destination = format!("{}:{}", send_ip, send_port);
