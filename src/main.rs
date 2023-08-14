@@ -40,8 +40,7 @@ async fn main() -> Result<()> {
     // main thing we need here is the xaddrs
     // which is an HTTP URL to which we call later
     // for "device management"
-    let xaddrs = parse_soap_find(socket_buffer, Some("XAddrs"));
-
+    let xaddrs = parse_soap_find(&socket_buffer, Some("XAddrs"));
     // parse_soap_find(&socket_buffer, None);
 
     // after discovery, the xaddrs in the reply from each device
@@ -84,7 +83,7 @@ async fn main() -> Result<()> {
     let soap_message = get_message(Messages::GetStreamURI);
 
     let response_bytes = onvif_message(&xaddrs, soap_message).await?;
-    let streaming_uri = parse_soap_find(response_bytes, Some("Uri"));
+    let streaming_uri = parse_soap_find(&response_bytes, Some("Uri"));
 
     println!("uri: {streaming_uri}");
 
@@ -239,7 +238,7 @@ fn discover_devices(socket: &UdpSocket, send_ip: &str, send_port: u16, message: 
     socket_buffer.into()
 }
 
-fn parse_soap_find(socket_buffer: Bytes, find: Option<&str>) -> String {
+fn parse_soap_find(socket_buffer: &Bytes, find: Option<&str>) -> String {
     // get XAddrs
     let mut element_found = String::new();
     let mut element_start = false;
@@ -298,26 +297,44 @@ fn get_message(msg_type: Messages) -> String {
     match msg_type {
         Messages::Discovery => format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>
-            <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"
-                        xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing"
+                        <e:Envelope xmlns:e="http://www.w3.org/2003/05/soap-envelope"
+                        xmlns:w="http://schemas.xmlsoap.org/ws/2004/08/addressing"
                         xmlns:d="http://schemas.xmlsoap.org/ws/2005/04/discovery"
                         xmlns:dn="http://www.onvif.org/ver10/network/wsdl">
-                <s:Header>
-                    <a:Action d:mustUnderstand="1">http://schemas.xmlsoap.org/ws/2005/04/discovery/Probe</a:Action>
-                    <a:MessageID>uuid:72d76f2a-23d5-4181-9ea2-1ade1ca198b9</a:MessageID>
-                    <a:ReplyTo>
-                        <a:Address>http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</a:Address>
-                    </a:ReplyTo>
-                    <a:To>urn:schemas-xmlsoap-org:ws:2005:04:discovery</a:To>
-                </s:Header>
-                <s:Body>
+                <e:Header>
+                    <w:MessageID>uuid:8d6ab73e-280a-4f23-967d-d2ec20b6d893</w:MessageID>
+                    <w:To>urn:schemas-xmlsoap-org:ws:2005:04:discovery</w:To>
+                    <w:Action>http://schemas.xmlsoap.org/ws/2005/04/discovery/Probe</w:Action>
+                </e:Header>
+                <e:Body>
                     <d:Probe>
                         <d:Types>dn:NetworkVideoTransmitter</d:Types>
                     </d:Probe>
-                </s:Body>
-            </s:Envelope>"#
+                </e:Body>
+            </e:Envelope>"#
         ),
 
+        // Messages::Discovery => format!(
+        //     r#"<?xml version="1.0" encoding="UTF-8"?>
+        //     <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"
+        //                 xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing"
+        //                 xmlns:d="http://schemas.xmlsoap.org/ws/2005/04/discovery"
+        //                 xmlns:dn="http://www.onvif.org/ver10/network/wsdl">
+        //         <s:Header>
+        //             <a:Action d:mustUnderstand="1">http://schemas.xmlsoap.org/ws/2005/04/discovery/Probe</a:Action>
+        //             <a:MessageID>uuid:72d76f2a-23d5-4181-9ea2-1ade1ca198b9</a:MessageID>
+        //             <a:ReplyTo>
+        //                 <a:Address>http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</a:Address>
+        //             </a:ReplyTo>
+        //             <a:To>urn:schemas-xmlsoap-org:ws:2005:04:discovery</a:To>
+        //         </s:Header>
+        //         <s:Body>
+        //             <d:Probe>
+        //                 <d:Types>dn:NetworkVideoTransmitter</d:Types>
+        //             </d:Probe>
+        //         </s:Body>
+        //     </s:Envelope>"#
+        // ),
         Messages::Capabilities => format!(
             r#"<Envelope xmlns="http://www.w3.org/2003/05/soap-envelope"
                          xmlns:tds="http://www.onvif.org/ver10/device/wsdl">
