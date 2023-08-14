@@ -1,9 +1,12 @@
 use anyhow::Result;
 use bytes::{Bytes, BytesMut};
-use opencv::highgui::{imshow, wait_key};
-use opencv::objdetect;
-use opencv::prelude::*;
-use opencv::videoio::{VideoCapture, CAP_FFMPEG};
+use opencv::{
+    highgui::{imshow, wait_key},
+    imgproc::{cvt_color, rectangle, COLOR_BGR2GRAY},
+    objdetect,
+    prelude::*,
+    videoio::{VideoCapture, CAP_FFMPEG},
+};
 use reqwest::{Client, RequestBuilder};
 use std::io::BufReader;
 use std::net::{SocketAddr, UdpSocket};
@@ -43,43 +46,14 @@ async fn main() -> Result<()> {
     let xaddrs = parse_soap_find(&socket_buffer, Some("XAddrs"));
     // parse_soap_find(&socket_buffer, None);
 
+    println!("----------------------- GET STREAM URI ----------------------");
+
     // after discovery, the xaddrs in the reply from each device
     // will reveal the url needed for device management
     // here the communication switches to requests sent via
     // HTTP, but still using SOAP
     // we are going to use reqwest to create HTTP requests
 
-    //------------------- GET DEVICE INFO
-    //-------------------
-
-    // println!("----------------------- DEVICE INFO -----------------------");
-    // let soap_message = get_message(Messages::DeviceInfo);
-
-    // let response_bytes = onvif_message(&xaddrs, soap_message).await?;
-    // parse_soap_find(response_bytes, None);
-
-    //------------------- GET DEVICE CAPABILITIES
-    //-------------------
-
-    // println!("----------------------- DEVICE CAPABILITIES -----------------------");
-    // let soap_message = get_message(Messages::Capabilities);
-
-    // let response_bytes = onvif_message(&xaddrs, soap_message).await?;
-    // parse_soap_find(response_bytes, None);
-
-    //------------------- GET DEVICE PROFILES
-    //-------------------
-
-    // println!("----------------------- DEVICE PROFILES -----------------------");
-    // let soap_message = get_message(Messages::Profiles);
-
-    // let response_bytes = onvif_message(&xaddrs, soap_message).await?;
-    // parse_soap_find(&response_bytes, None);
-
-    //------------------- GET STREAM URI
-    //-------------------
-
-    println!("----------------------- STREAM URI ----------------------");
     let soap_message = get_message(Messages::GetStreamURI);
 
     let response_bytes = onvif_message(&xaddrs, soap_message).await?;
@@ -120,17 +94,12 @@ async fn main() -> Result<()> {
 
                 // Convert the image to grayscale (required for detection)
                 let mut gray = Mat::default();
-                opencv::imgproc::cvt_color(
-                    &mut frame,
-                    &mut gray,
-                    opencv::imgproc::COLOR_BGR2GRAY,
-                    0,
-                )?;
+                cvt_color(&mut frame, &mut gray, COLOR_BGR2GRAY, 0)?;
 
                 face_cascade.detect_multi_scale(
                     &gray,
                     &mut faces,
-                    1.4,
+                    1.6, // scale for faster speed but less accurate
                     3,
                     0,
                     Default::default(),
@@ -143,7 +112,7 @@ async fn main() -> Result<()> {
                 for face in faces.iter() {
                     // let top_left = face.tl();
                     // let bottom_right = face.br();
-                    opencv::imgproc::rectangle(
+                    rectangle(
                         &mut frame,
                         face,
                         opencv::core::Scalar::new(0.0, 0.0, 255.0, 0.0),
