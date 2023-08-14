@@ -22,6 +22,13 @@ enum Messages {
     GetStreamURI,
 }
 
+#[derive(Debug)]
+struct DetectedObject {
+    bounding_box: opencv::core::Rect,
+    class_id: i32,
+    confidence: f32,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let socket = UdpSocket::bind("0.0.0.0:0")?;
@@ -81,9 +88,6 @@ async fn main() -> Result<()> {
     // Detect face every nth frame
     let mut frame_skip = 10;
 
-    // Detect faces in the image
-    let mut faces = opencv::types::VectorOfRect::new();
-
     loop {
         if capture.read(&mut frame)? {
             // Decrement frame_skip
@@ -92,49 +96,149 @@ async fn main() -> Result<()> {
             if frame_skip <= 0 {
                 frame_skip = 10;
 
-                // Convert the image to grayscale (required for detection)
-                let mut gray = Mat::default();
-                cvt_color(&mut frame, &mut gray, COLOR_BGR2GRAY, 0)?;
+                // Load the YOLO model configuration and weights
+                let config_path = "yolov3.cfg";
+                let weights_path = "yolov3.weights";
+                let net =
+                    Net::read_from_model_configuration_and_weights(config_path, weights_path)?;
 
-                face_cascade.detect_multi_scale(
-                    &gray,
-                    &mut faces,
-                    1.6, // scale for faster speed but less accurate
-                    3,
-                    0,
-                    Default::default(),
-                    Default::default(),
-                )?;
-            }
+                // Load an image
+                let image_path = "path_to_your_image.jpg";
+                let mut image = imread(image_path, imread::IMREAD_COLOR)?;
 
-            if !faces.is_empty() {
-                // Draw rectangles around detected faces
-                for face in faces.iter() {
-                    // let top_left = face.tl();
-                    // let bottom_right = face.br();
-                    rectangle(
-                        &mut frame,
-                        face,
-                        opencv::core::Scalar::new(0.0, 0.0, 255.0, 0.0),
-                        2,
-                        8,
-                        0,
+                // Get image dimensions
+                let (height, width) = image.size()?;
+
+                // Prepare the image for inference
+                let input_blob = blob_from_image(&image)?;
+
+                // Set the input to the YOLO network
+                net.set_input(&input_blob, "data")?;
+
+                // Perform forward pass and get output layer names
+                let output_names = net.get_unconnected_out_layers_names()?;
+                let mut outs = types::VectorOfMat::new();
+                net.forward(&mut outs, &output_names)?;
+
+                // Get detected objects and apply Non-Maximum Suppression (NMS)
+                let conf_threshold = 0.5;
+                let nms_threshold = 0.4;
+                let detected_objects = post_process(&outs, &image, conf_threshold, nms_threshold)?;
+
+                // Draw bounding boxes around detected objects
+                for obj in detected_objects {
+                    let class_id = obj.class_id;
+                    let label = format!("Face {:.2}", obj.confidence);
+
+                    let color = Scalar::new(0.0, 255.0, 0.0, 0.0);
+                    opencv::imgproc::rectangle(&mut image, obj.bounding_box, color, 2, 8, 0)?;
+
+                    // Draw label text
+                    let mut label_size = Size::default();
+                    let baseline = 0;
+                    opencv::imgproc::get_text_size(
+                        &label,
+                        opencv::imgproc::FONT_HERSHEY_SIMPLEX,
+                        0.5,
+                        1,
+                        &mut baseline,
+                        &mut label_size,
                     )?;
+                    let label_origin = opencv::core::Point::new(
+                        obj.bounding_box.x,
+                        obj.bounding_box.y - label_size.height - baseline,
+                    );
+                    opencv::imgproc::put_text(
+                        &mut image,
+                        &label,
+                        label_origin,
+                        opencv::imgproc::FONT_HERSHEY_SIMPLEX,
+                        0.5,
+                        color,
+                        1,
+                        8,
+                        false,
+                    )?;
+
+                    println!("Detected face at confidence {:.2}", obj.confidence);
                 }
             }
 
             imshow("Video", &frame)?;
-
-            let key = wait_key(10)?;
-            if key > 0 && key != 255 {
-                break;
-            }
+            let key = wait_key(0)?;
         } else {
             break;
         }
     }
 
     Ok(())
+}
+fn blob_from_image(image: &Mat) -> Result<Mat, opencv::Error> {
+    // Prepare the image for YOLO input
+    let scale_factor = 1.0 / 255.0;
+    let input_size = opencv::core::Size::new(416, 416);
+    let input_mean = opencv::core::Scalar::new(0.0, 0.0, 0.0, 0.0);
+    let input_swap_rb = true;
+    let crop = false;
+
+    let mut blob = opencv::dnn::blob_from_image(
+        image,
+        scale_factor,
+        input_size,
+        input_mean,
+        input_swap_rb,
+        crop,
+        opencv::core::CV_32F,
+    )?;
+    Ok(blob)
+}
+
+fn post_process(
+    outs: &types::VectorOfMat,
+    image: &Mat,
+    conf_threshold: f32,
+    nms_threshold: f32,
+) -> Result<Vec<DetectedObject>, opencv::Error> {
+    let class_ids: Vec<i32> = vec![0]; // 0 represents the "person" class
+    let num_classes = class_ids.len();
+
+    let mut detected_objects = Vec::new();
+
+    for out in outs.iter() {
+        let data = out.at_2d::<f32>(0, 0)?;
+
+        for i in 0..out.rows() {
+            let scores = data.col_range(i * num_classes..(i + 1) * num_classes)?;
+            let max_score = scores.max()?;
+            let class_id = scores.argmax(0)? as i32;
+
+            if max_score > conf_threshold && class_ids.contains(&class_id) {
+                let bounding_box = out.at_2d::<f32>(i, 0)?;
+                let x = bounding_box.at::<f32>(0)?;
+                let y = bounding_box.at::<f32>(1)?;
+                let width = bounding_box.at::<f32>(2)?;
+                let height = bounding_box.at::<f32>(3)?;
+
+                let left = (x * image.cols() as f32) - (width * image.cols() as f32 / 2.0);
+                let top = (y * image.rows() as f32) - (height * image.rows() as f32 / 2.0);
+                let right = left + (width * image.cols() as f32);
+                let bottom = top + (height * image.rows() as f32);
+
+                let bounding_box = opencv::core::Rect::new(
+                    left as i32,
+                    top as i32,
+                    (right - left) as i32,
+                    (bottom - top) as i32,
+                );
+
+                detected_objects.push(DetectedObject {
+                    bounding_box,
+                    class_id,
+                    confidence: max_score,
+                });
+            }
+        }
+    }
 }
 
 /// Returns the response received when sending an ONVIF request to a
