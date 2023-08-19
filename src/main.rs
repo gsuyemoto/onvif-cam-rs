@@ -1,8 +1,8 @@
 use anyhow::Result;
 use bytes::{Bytes, BytesMut};
 use opencv::{
-    highgui::{imshow, wait_key},
-    imgproc::{cvt_color, rectangle, COLOR_BGR2GRAY},
+    highgui::{imshow, named_window, wait_key},
+    imgproc::{get_text_size, rectangle, FONT_HERSHEY_SIMPLEX},
     objdetect,
     prelude::*,
     videoio::{VideoCapture, CAP_FFMPEG},
@@ -11,6 +11,8 @@ use reqwest::{Client, RequestBuilder};
 use std::io::BufReader;
 use std::net::{SocketAddr, UdpSocket};
 use xml::reader::{EventReader, XmlEvent};
+
+mod yolov8_onnx;
 
 /// All of the ONVIF requests that this program supports
 #[derive(Debug)]
@@ -69,15 +71,9 @@ async fn main() -> Result<()> {
     println!("uri: {streaming_uri}");
 
     println!("----------------------- OPEN CAMERA STREAM! ----------------------");
+
     // Initialize OpenCV
-    opencv::highgui::named_window("Video", 1)?;
-
-    // Load the Haarcascade classifier for face detection
-    let mut face_cascade = objdetect::CascadeClassifier::new(
-        "/usr/share/opencv4/haarcascades/haarcascade_frontalface_default.xml",
-    )?;
-
-    println!("Loaded haarcascade...");
+    named_window("Video", 1)?;
 
     // Open the RTSP stream
     let mut capture = VideoCapture::from_file(&streaming_uri, CAP_FFMPEG)?;
@@ -96,34 +92,7 @@ async fn main() -> Result<()> {
             if frame_skip <= 0 {
                 frame_skip = 10;
 
-                // Load the YOLO model configuration and weights
-                let config_path = "yolov3.cfg";
-                let weights_path = "yolov3.weights";
-                let net =
-                    Net::read_from_model_configuration_and_weights(config_path, weights_path)?;
-
-                // Load an image
-                let image_path = "path_to_your_image.jpg";
-                let mut image = imread(image_path, imread::IMREAD_COLOR)?;
-
-                // Get image dimensions
-                let (height, width) = image.size()?;
-
-                // Prepare the image for inference
-                let input_blob = blob_from_image(&image)?;
-
-                // Set the input to the YOLO network
-                net.set_input(&input_blob, "data")?;
-
-                // Perform forward pass and get output layer names
-                let output_names = net.get_unconnected_out_layers_names()?;
-                let mut outs = types::VectorOfMat::new();
-                net.forward(&mut outs, &output_names)?;
-
-                // Get detected objects and apply Non-Maximum Suppression (NMS)
-                let conf_threshold = 0.5;
-                let nms_threshold = 0.4;
-                let detected_objects = post_process(&outs, &image, conf_threshold, nms_threshold)?;
+                let detected_objects = detect_objects_on_image(&frame);
 
                 // Draw bounding boxes around detected objects
                 for obj in detected_objects {
@@ -131,14 +100,14 @@ async fn main() -> Result<()> {
                     let label = format!("Face {:.2}", obj.confidence);
 
                     let color = Scalar::new(0.0, 255.0, 0.0, 0.0);
-                    opencv::imgproc::rectangle(&mut image, obj.bounding_box, color, 2, 8, 0)?;
+                    rectangle(&mut image, obj.bounding_box, color, 2, 8, 0)?;
 
                     // Draw label text
                     let mut label_size = Size::default();
                     let baseline = 0;
-                    opencv::imgproc::get_text_size(
+                    get_text_size(
                         &label,
-                        opencv::imgproc::FONT_HERSHEY_SIMPLEX,
+                        FONT_HERSHEY_SIMPLEX,
                         0.5,
                         1,
                         &mut baseline,
@@ -152,7 +121,7 @@ async fn main() -> Result<()> {
                         &mut image,
                         &label,
                         label_origin,
-                        opencv::imgproc::FONT_HERSHEY_SIMPLEX,
+                        FONT_HERSHEY_SIMPLEX,
                         0.5,
                         color,
                         1,
