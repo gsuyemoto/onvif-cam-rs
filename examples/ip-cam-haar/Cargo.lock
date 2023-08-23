@@ -545,6 +545,7 @@ dependencies = [
  "anyhow",
  "reqwest",
  "tokio",
+ "url",
  "xml-rs",
 ]
 

@@ -1,8 +1,8 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use reqwest::{Client, RequestBuilder};
-use std::net::SocketAddr;
-use std::{arch::x86_64::_CMP_TRUE_US, io::BufReader};
+use std::{io::BufReader, net::SocketAddr};
 use tokio::net::UdpSocket;
+use url::Url;
 use xml::reader::{EventReader, XmlEvent};
 
 const DISCOVER_URI: &'static str = "239.255.255.250:3702";
@@ -19,14 +19,16 @@ pub enum Messages {
 }
 
 pub struct OnvifClient {
-    addrs_devices: Option<Vec<String>>,
+    devices: Option<Vec<Device>>,
+}
+
+struct Device {
+    rtsp_url: Url,
 }
 
 impl OnvifClient {
     pub fn new() -> Self {
-        OnvifClient {
-            addrs_devices: None,
-        }
+        OnvifClient { devices: None }
     }
 
     /// Sends a multicast request via raw udpsocket on LAN.
@@ -73,7 +75,7 @@ impl OnvifClient {
         }
 
         // Get responses to broadcast message
-        let mut resp_buf = [0u8; 4096]; // maybe vec will work, just need to convert to slice and only use VALID bytes (to size of response)
+        let mut resp_buf = [0u8; 4096];
         let success = udp_client.recv_from(&mut resp_buf).await;
 
         let resp_size = match success {
@@ -89,7 +91,14 @@ impl OnvifClient {
         let xaddrs = parse_soap(&resp_buf[..resp_size], Some("XAddrs"))?;
         println!("[Discover] Found xaddrs: {xaddrs}");
 
-        self.addrs_devices = Some(vec![xaddrs]);
+        let rtsp_url = Url::parse(&xaddrs);
+        let rtsp_url = match rtsp_url {
+            Ok(url) => url,
+            Err(e) => panic!("[Discover] Error creating Url object from xaddrs: {e}"),
+        };
+
+        let new_device = Device { rtsp_url };
+        self.devices = Some(vec![new_device]);
 
         Ok(self)
     }
@@ -114,8 +123,8 @@ impl OnvifClient {
         // After discovery, communication with device via ONVIF
         // will switch to HTTP and use the following url:
         // http://ip.address/onvif/device_service
-        let device_uri = match &self.addrs_devices {
-            Some(uris) => &uris[0],
+        let device_uri = match &self.devices {
+            Some(devices) => devices[0].rtsp_url.as_str(),
             None => panic!("[Send] No devices have been discovered!"),
         };
 
@@ -142,6 +151,21 @@ impl OnvifClient {
         }
 
         result
+    }
+
+    // Convenience function to get the socket URI for the
+    // first device known
+    pub fn get_stream(&self) -> Result<String> {
+        let uri = match &self.devices {
+            Some(devices) => {
+                let host = devices[0].rtsp_url.host_str().unwrap();
+                let port = devices[0].rtsp_url.port().unwrap();
+                format!("{host}:{port}")
+            }
+            None => bail!("[Stream] No known devices or bad stream URI"),
+        };
+
+        Ok(uri)
     }
 }
 
