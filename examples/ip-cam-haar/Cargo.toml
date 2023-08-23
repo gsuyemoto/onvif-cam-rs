@@ -1,13 +1,14 @@
 [package]
-name = "onvif-client-rs"
+name = "ip-cam-haar"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+onvif-client-rs = { path = "../../" }
 anyhow = "1.0"
-reqwest = "0.11"
+opencv = "0.84.5"
 xml-rs = "0.8"
 
 [dependencies.tokio]
 version = "1"
-features = ["net"]
+features = ["full"]
