@@ -1,8 +1,7 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use reqwest::{Client, RequestBuilder};
-use std::{io::BufReader, net::SocketAddr};
-use tokio::io::ErrorKind;
-use tokio::net::UdpSocket;
+use std::{io::BufReader, net::SocketAddr, time::Duration};
+use tokio::{io::ErrorKind, net::UdpSocket, time::timeout};
 use url::Url;
 use xml::reader::{EventReader, XmlEvent};
 
@@ -82,9 +81,29 @@ impl OnvifClient {
         let mut buf = Vec::with_capacity(4096);
         let mut buf_size: usize = 0;
 
+        let mut try_times = 0;
+        let mut fail = false;
+
         'read: loop {
+            try_times += 1;
+            if try_times == 5 {
+                fail = true;
+                break 'read;
+            }
+
             // Wait for the socket to be readable
-            udp_client.readable().await?;
+            if let Err(_) = timeout(Duration::from_millis(1000), udp_client.readable()).await {
+                // Send the SOAP message over UDP
+                // Used default IP and Port
+                let success = udp_client.send_to(msg_discover.as_ref(), addr_send).await;
+
+                match success {
+                    Ok(_) => println!("[Discover] Broadcasting to discover devices..."),
+                    Err(e) => panic!("[Discover] Error attempting device discovery: {e}"),
+                }
+
+                continue;
+            }
 
             // Try to read data, this may still fail with `WouldBlock`
             // if the readiness event is a false positive.
@@ -101,6 +120,10 @@ impl OnvifClient {
                     return Err(e.into());
                 }
             }
+        }
+
+        if fail {
+            panic!("[Discover] Tried {try_times} times and unable to find any devices.");
         }
 
         // The SOAP response should provide an XAddrs which will be the
@@ -147,15 +170,37 @@ impl OnvifClient {
             _ => self.devices[0].onvif_control_url.as_str(),
         };
 
-        let soap_msg = soap_msg(&msg);
-        let client = Client::new();
-        let request: RequestBuilder = client
-            .post(device_uri)
-            .header("Content-Type", "application/soap+xml; charset=utf-8")
-            .body(soap_msg);
+        let mut try_times = 0;
+        let mut fail = false;
+        let mut response: String = String::new();
 
-        // Send the HTTP request and receive the response
-        let response = request.send().await?.text().await?;
+        'read: loop {
+            try_times += 1;
+            if try_times == 5 {
+                fail = true;
+                break 'read;
+            }
+
+            let soap_msg = soap_msg(&msg);
+            let client = Client::new();
+            let request: RequestBuilder = client
+                .post(device_uri)
+                .header("Content-Type", "application/soap+xml; charset=utf-8")
+                .body(soap_msg);
+
+            // Send the HTTP request and receive the response
+            match timeout(Duration::from_secs(1), request.send()).await {
+                Ok(resp) => {
+                    response = resp?.text().await?;
+                    break 'read;
+                }
+                Err(_) => println!("[Discover][send] Error waiting for response, trying again..."),
+            };
+        }
+
+        if fail {
+            panic!("[Discover][send] Tried {try_times} to send {:?}", msg);
+        }
 
         let parsed = match msg {
             Messages::Discovery => panic!("Not implemented."),
