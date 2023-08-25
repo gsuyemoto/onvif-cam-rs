@@ -147,12 +147,11 @@ impl OnvifClient {
 
     /// Returns the response received when sending an ONVIF request to a
     /// device found via device discovery
-    /// The reponse is SOAP formatted as byte array
+    /// The response is SOAP formatted as byte array
     ///
     /// # Arguments
     ///
-    /// * `device_url` - The URL provided in the xaddrs via device discovery
-    /// * `soap_msg` - The SOAP request formatted as a String
+    /// * `msg` - The SOAP request as Messages Enum
     ///
     /// # Examples
     ///
@@ -174,6 +173,11 @@ impl OnvifClient {
         let mut fail = false;
         let mut response: String = String::new();
 
+        // Try to send the reqwest try_times (5)
+        // with a 1sec timemout for each reqwest
+        let soap_msg = soap_msg(&msg);
+        let client = Client::new();
+
         'read: loop {
             try_times += 1;
             if try_times == 5 {
@@ -181,12 +185,10 @@ impl OnvifClient {
                 break 'read;
             }
 
-            let soap_msg = soap_msg(&msg);
-            let client = Client::new();
             let request: RequestBuilder = client
                 .post(device_uri)
                 .header("Content-Type", "application/soap+xml; charset=utf-8")
-                .body(soap_msg);
+                .body(soap_msg.clone());
 
             // Send the HTTP request and receive the response
             match timeout(Duration::from_secs(1), request.send()).await {
