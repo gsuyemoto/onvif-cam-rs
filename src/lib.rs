@@ -1,12 +1,18 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use reqwest::{Client, RequestBuilder};
 use std::{io::BufReader, net::SocketAddr, time::Duration};
 use tokio::{io::ErrorKind, net::UdpSocket, time::timeout};
 use url::Url;
 use xml::reader::{EventReader, XmlEvent};
+//------ Saving File
+use std::fmt;
+use std::fs::File;
+use std::io::{Read, Write};
+use std::path::Path;
 
 const DISCOVER_URI: &'static str = "239.255.255.250:3702";
 const CLIENT_LISTEN_IP: &'static str = "0.0.0.0:0"; // notice port is 0
+const FILE_FOUND_DEVICES: &'static str = "devices_found.txt";
 
 /// All of the ONVIF requests that this program supports
 #[derive(Debug)]
@@ -20,7 +26,8 @@ pub enum Messages {
 
 struct Device {
     rtsp_uri: Option<String>,
-    onvif_control_url: Url,
+    mac_addr: Option<String>,
+    onvif_url: Option<String>,
 }
 
 pub struct OnvifClient {
@@ -131,14 +138,15 @@ impl OnvifClient {
         let xaddrs = parse_soap(&buf[..buf_size], Some("XAddrs"));
         println!("[Discover] Found xaddrs: {xaddrs}");
 
-        let onvif_control_url = Url::parse(&xaddrs);
-        let onvif_control_url = match onvif_control_url {
-            Ok(url) => url,
-            Err(e) => panic!("[Discover] Error creating Url object from xaddrs: {e}"),
-        };
+        // let onvif_url = Url::parse(&xaddrs);
+        // let onvif_url = match onvif_url {
+        //     Ok(url) => url,
+        //     Err(e) => panic!("[Discover] Error creating Url object from xaddrs: {e}"),
+        // };
 
         self.devices.push(Device {
-            onvif_control_url,
+            onvif_url: Some(xaddrs),
+            mac_addr: None,
             rtsp_uri: None,
         });
 
@@ -164,10 +172,9 @@ impl OnvifClient {
         // After discovery, communication with device via ONVIF
         // will switch to HTTP and use the following url:
         // http://ip.address/onvif/device_service
-        let device_uri = match &self.devices.len() {
-            0 => panic!("[Send] No devices have been discovered!"),
-            _ => self.devices[0].onvif_control_url.as_str(),
-        };
+        if self.devices.len() == 0 {
+            return Err(anyhow!("No devices available"));
+        }
 
         let mut try_times = 0;
         let mut fail = false;
@@ -185,8 +192,10 @@ impl OnvifClient {
                 break 'read;
             }
 
+            let device_url = self.devices[0].onvif_url.as_deref().unwrap();
+            let device_url: Url = Url::parse(device_url)?;
             let request: RequestBuilder = client
-                .post(device_uri)
+                .post(device_url)
                 .header("Content-Type", "application/soap+xml; charset=utf-8")
                 .body(soap_msg.clone());
 
@@ -212,12 +221,74 @@ impl OnvifClient {
             Messages::GetStreamURI => {
                 let uri = parse_soap(response.as_bytes(), Some("Uri"));
                 self.devices[0].rtsp_uri = Some(uri.clone());
+
+                // TODO: Check if device IP is already in saved file and if not, save it
+
                 uri
             }
         };
 
         Ok(parsed)
     }
+}
+
+// Save the IP address to a file
+// That way, discovery via UDP broadcast can be skipped
+// File Format:
+// IP: ip_addr_device MAC: mac_addr_device COMPANY: device maker
+
+fn file_save(contents: &[u8]) {
+    let path = Path::new(FILE_FOUND_DEVICES);
+    let display = path.display();
+
+    // Open a file in write-only mode, returns `io::Result<File>`
+    let mut file = match File::create(&path) {
+        Ok(file) => file,
+        Err(why) => panic!("couldn't create {}: {}", display, why),
+    };
+
+    match file.write_all(contents) {
+        Ok(_) => println!("successfully wrote to {}", display),
+        Err(why) => panic!("couldn't write to {}: {}", display, why),
+    }
+}
+
+fn file_check() -> Result<Vec<Device>> {
+    let open = Path::new(FILE_FOUND_DEVICES);
+    let path = open.display();
+    let mut contents_str = String::new();
+
+    // Open a file in read-only mode, returns `io::Result<File>`
+    let mut file = File::open(&open)?;
+    let contents_size = file.read_to_string(&mut contents_str)?;
+
+    if contents_size == 0 {
+        return Err(anyhow!("File found, but empty"));
+    }
+    if !contents_str.contains("IP") {
+        return Err(anyhow!("File found, but no devices"));
+    }
+
+    let vec_devices = contents_str
+        .lines()
+        .collect::<Vec<&str>>()
+        .iter()
+        .map(|line| line.split(' ').collect::<Vec<&str>>())
+        .map(|line| {
+            line.iter()
+                .enumerate()
+                .filter(|(i, _)| i % 2 == 0)
+                .map(|(_, val)| *val)
+                .collect::<Vec<&str>>()
+        })
+        .map(|vals| Device {
+            rtsp_uri: Some(vals[0].to_string()),
+            mac_addr: Some(vals[1].to_string()),
+            onvif_url: None,
+        })
+        .collect();
+
+    Ok(vec_devices)
 }
 
 fn parse_soap(response: &[u8], find: Option<&str>) -> String {
