@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use reqwest::{Client, RequestBuilder};
+use std::net::IpAddr;
 use std::{io::BufReader, net::SocketAddr, time::Duration};
 use tokio::{io::ErrorKind, net::UdpSocket, time::timeout};
 use url::Url;
@@ -14,7 +15,7 @@ const DISCOVER_URI: &'static str = "239.255.255.250:3702";
 const CLIENT_LISTEN_IP: &'static str = "0.0.0.0:0"; // notice port is 0
 const FILE_FOUND_DEVICES: &'static str = "devices_found.txt";
 
-/// All of the ONVIF requests that this program supports
+/// All of the ONVIF requests that this program plans to support
 #[derive(Debug)]
 pub enum Messages {
     Discovery,
@@ -25,20 +26,46 @@ pub enum Messages {
 }
 
 struct Device {
-    rtsp_uri: Option<String>,
-    mac_addr: Option<String>,
-    onvif_url: Option<String>,
+    ip: IpAddr,
+    url_onvif: Url, // http://ip.address/onvif/device_service
+    port_rtp: u16,  // port number provided in SETUP response (as range e.g. 6600-6601)
 }
 
 pub struct OnvifClient {
+    device_file_exists: bool,
     devices: Vec<Device>,
 }
 
 impl OnvifClient {
-    pub fn new() -> Self {
-        OnvifClient {
+    pub async fn new() -> Self {
+        let mut result = OnvifClient {
             devices: Vec::new(),
+            device_file_exists: false,
+        };
+
+        // Check if a file of saved devices exists already
+        if let Ok(already_found_devices) = file_load() {
+            println!(
+                "[OnvifClient] Found {} devices in local file.",
+                already_found_devices.len()
+            );
+
+            result.device_file_exists = true;
+            result.devices = already_found_devices;
+        // Otherwise, search for devices using UDP requests
+        } else {
+            let find_devices = Self::discover().await;
+            if let Ok(devices) = find_devices {
+                // save discovered devices to a local file
+                if let Err(e) = file_save(&devices) {
+                    eprintln!("[OnvifClient] Found devices, but error saving to file: {e}");
+                }
+
+                result.devices = devices;
+            }
         }
+
+        result
     }
 
     /// Sends a multicast request via raw udpsocket on LAN.
@@ -50,9 +77,9 @@ impl OnvifClient {
     /// # Examples
     ///
     /// ```
-    /// let onvif_client = OnvifClient::new().discover().await?;
+    /// let onvif_client = OnvifClient::discover().await?;
     /// ```
-    pub async fn discover(mut self) -> Result<Self> {
+    pub async fn discover() -> Result<Vec<Device>> {
         // Discovery is based on ws-discovery
         // Which allows for TCP or UDP
         // We will use a raw UDP socket
@@ -76,7 +103,7 @@ impl OnvifClient {
         let msg_discover = soap_msg(&Messages::Discovery);
 
         // Send the SOAP message over UDP
-        // Used default IP and Port
+        // Use broadcast IP and Port
         let success = udp_client.send_to(msg_discover.as_ref(), addr_send).await;
 
         match success {
@@ -91,40 +118,61 @@ impl OnvifClient {
         let mut try_times = 0;
         let mut fail = false;
 
+        let mut devices_found: Vec<Device> = Vec::new();
+        let mut devices_check = String::new();
+
+        // Discover devices using UDP broadcast
         'read: loop {
             try_times += 1;
-            if try_times == 5 {
-                fail = true;
+            if try_times == 10 {
+                // Fail if no devices found
+                if devices_found.is_empty() {
+                    fail = true;
+                }
+
                 break 'read;
             }
 
-            // Wait for the socket to be readable
-            if let Err(_) = timeout(Duration::from_millis(1000), udp_client.readable()).await {
-                // Send the SOAP message over UDP
-                // Used default IP and Port
-                let success = udp_client.send_to(msg_discover.as_ref(), addr_send).await;
+            // Send the SOAP message over UDP
+            // Used default IP and Port
+            let success = udp_client.send_to(msg_discover.as_ref(), addr_send).await;
 
-                match success {
-                    Ok(_) => println!("[Discover] Broadcasting to discover devices..."),
-                    Err(e) => panic!("[Discover] Error attempting device discovery: {e}"),
-                }
-
-                continue;
+            match success {
+                Ok(_) => println!("[Discover] Broadcasting to discover devices..."),
+                Err(e) => panic!("[Discover] Error attempting device discovery: {e}"),
             }
 
-            // Try to read data, this may still fail with `WouldBlock`
-            // if the readiness event is a false positive.
-            match udp_client.try_recv_buf_from(&mut buf) {
-                Ok((size, addr)) => {
-                    println!("[Discover] Received response from: {addr}");
-                    buf_size = size;
-                    break 'read;
-                }
-                Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                    continue;
-                }
-                Err(e) => {
-                    return Err(e.into());
+            // Wait 1 sec for a response
+            if let Ok(recv) = timeout(
+                Duration::from_millis(1000),
+                udp_client.recv_buf_from(&mut buf),
+            )
+            .await
+            {
+                match recv {
+                    Ok((size, addr)) => {
+                        println!("[Discover] Received response from: {addr}");
+
+                        if !devices_check.contains(&addr.to_string()) {
+                            println!("[Discover] Found a new device: {addr}");
+                            devices_check = format!("{devices_check}:{addr}");
+
+                            // The SOAP response should provide an XAddrs which will be the
+                            // ONVIF URL of the device that responded
+                            let xaddrs = parse_soap(&buf[..size], Some("XAddrs"));
+                            println!("[Discover] Received reply from: {xaddrs}");
+
+                            // Save addr -> SocketAddr and xaddrs -> String (full ONVIF URL)
+                            devices_found.push(Device {
+                                ip: addr.ip(),
+                                url_onvif: xaddrs.parse()?,
+                                port_rtp: 0,
+                            })
+                        }
+
+                        buf.clear();
+                    }
+                    Err(e) => println!("[Discover] Error in response {e}"),
                 }
             }
         }
@@ -133,24 +181,7 @@ impl OnvifClient {
             panic!("[Discover] Tried {try_times} times and unable to find any devices.");
         }
 
-        // The SOAP response should provide an XAddrs which will be the
-        // IP address of the device that responded
-        let xaddrs = parse_soap(&buf[..buf_size], Some("XAddrs"));
-        println!("[Discover] Found xaddrs: {xaddrs}");
-
-        // let onvif_url = Url::parse(&xaddrs);
-        // let onvif_url = match onvif_url {
-        //     Ok(url) => url,
-        //     Err(e) => panic!("[Discover] Error creating Url object from xaddrs: {e}"),
-        // };
-
-        self.devices.push(Device {
-            onvif_url: Some(xaddrs),
-            mac_addr: None,
-            rtsp_uri: None,
-        });
-
-        Ok(self)
+        Ok(devices_found)
     }
 
     /// Returns the response received when sending an ONVIF request to a
@@ -160,18 +191,17 @@ impl OnvifClient {
     /// # Arguments
     ///
     /// * `msg` - The SOAP request as Messages Enum
+    /// * `device_index` - Which device to send message
     ///
     /// # Examples
     ///
     /// ```
-    /// let onvif_client = OnvifClient::new().discover().await?;
-    /// let streaming_uri = onvif_client.send(Messages::GetStreamURI).await?;
-    /// println!("uri: {streaming_uri}");
+    /// let onvif_client = OnvifClient::new().await?;
+    /// onvif_client.send(Messages::GetStreamURI, 0).await?;
+    ///
+    /// println!("RTP port for streaming video: {}", onvif_client.devices[0].port_rtp);
     /// ```
-    pub async fn send(&mut self, msg: Messages) -> Result<String> {
-        // After discovery, communication with device via ONVIF
-        // will switch to HTTP and use the following url:
-        // http://ip.address/onvif/device_service
+    pub async fn send(&mut self, msg: Messages, device_index: usize) -> Result<()> {
         if self.devices.len() == 0 {
             return Err(anyhow!("No devices available"));
         }
@@ -192,10 +222,10 @@ impl OnvifClient {
                 break 'read;
             }
 
-            let device_url = self.devices[0].onvif_url.as_deref().unwrap();
-            let device_url: Url = Url::parse(device_url)?;
+            // Create HTTP request using onvif_url
+            let device_onvif = self.devices[device_index].url_onvif.clone();
             let request: RequestBuilder = client
-                .post(device_url)
+                .post(device_onvif)
                 .header("Content-Type", "application/soap+xml; charset=utf-8")
                 .body(soap_msg.clone());
 
@@ -213,47 +243,68 @@ impl OnvifClient {
             panic!("[Discover][send] Tried {try_times} to send {:?}", msg);
         }
 
+        // Parse SOAP response from HTTP request
+        // Depending on method type, parse for
+        // certain values only
         let parsed = match msg {
+            // UDP broadcast to discover devices
             Messages::Discovery => panic!("Not implemented."),
             Messages::Capabilities => panic!("Not implemented."),
             Messages::DeviceInfo => panic!("Not implemented."),
             Messages::Profiles => panic!("Not implemented."),
+            // Get the RTSP URI from the device
             Messages::GetStreamURI => {
                 let uri = parse_soap(response.as_bytes(), Some("Uri"));
-                self.devices[0].rtsp_uri = Some(uri.clone());
+                let url_stream: Url = uri.parse()?;
 
-                // TODO: Check if device IP is already in saved file and if not, save it
-
-                uri
+                self.devices[device_index].port_rtp = url_stream.port().unwrap();
             }
         };
 
-        Ok(parsed)
+        Ok(())
     }
 }
 
 // Save the IP address to a file
 // That way, discovery via UDP broadcast can be skipped
 // File Format:
-// IP: ip_addr_device MAC: mac_addr_device COMPANY: device maker
+// IP: URI for device streaming ONVIF: path only part of url RTP: port for rtp
 
-fn file_save(contents: &[u8]) {
+fn file_save(devices: &Vec<Device>) -> Result<()> {
+    if devices.len() == 0 {
+        return Err(anyhow!(
+            "[OnvifClient][file_saver] Provided empty list of devices"
+        ));
+    }
+
     let path = Path::new(FILE_FOUND_DEVICES);
     let display = path.display();
 
     // Open a file in write-only mode, returns `io::Result<File>`
     let mut file = match File::create(&path) {
         Ok(file) => file,
-        Err(why) => panic!("couldn't create {}: {}", display, why),
+        Err(why) => panic!(
+            "[OnvifClient][file_saver] couldn't create {}: {}",
+            display, why
+        ),
     };
 
-    match file.write_all(contents) {
-        Ok(_) => println!("successfully wrote to {}", display),
-        Err(why) => panic!("couldn't write to {}: {}", display, why),
+    let mut contents = String::new();
+    for device in devices {
+        let device_line = format!(
+            "IP: {} ONVIF: {} RTP: {}",
+            device.ip, device.url_onvif, device.port_rtp
+        );
+
+        contents = format!("{contents}\n{device_line}");
     }
+
+    file.write_all(contents.as_bytes())?;
+
+    Ok(())
 }
 
-fn file_check() -> Result<Vec<Device>> {
+fn file_load() -> Result<Vec<Device>> {
     let open = Path::new(FILE_FOUND_DEVICES);
     let path = open.display();
     let mut contents_str = String::new();
@@ -263,13 +314,17 @@ fn file_check() -> Result<Vec<Device>> {
     let contents_size = file.read_to_string(&mut contents_str)?;
 
     if contents_size == 0 {
-        return Err(anyhow!("File found, but empty"));
+        return Err(anyhow!(
+            "[OnvifClient][file_check] File found at {path}, but empty"
+        ));
     }
     if !contents_str.contains("IP") {
-        return Err(anyhow!("File found, but no devices"));
+        return Err(anyhow!(
+            "[OnvifClient][file_check] File found at {path}, but no devices"
+        ));
     }
 
-    let vec_devices = contents_str
+    let vec_devices: Vec<Device> = contents_str
         .lines()
         .collect::<Vec<&str>>()
         .iter()
@@ -282,11 +337,23 @@ fn file_check() -> Result<Vec<Device>> {
                 .collect::<Vec<&str>>()
         })
         .map(|vals| Device {
-            rtsp_uri: Some(vals[0].to_string()),
-            mac_addr: Some(vals[1].to_string()),
-            onvif_url: None,
+            ip: vals[0]
+                .parse()
+                .expect("[OnvifClient][file_check] Parse error on IP"),
+            url_onvif: format!("{}{}", vals[0], vals[1])
+                .parse()
+                .expect("[OnvifClient][file_check] Parse error on onvif url"),
+            port_rtp: vals[2]
+                .parse()
+                .expect("[OnvifClient][file_check] Parse error on rtp port"),
         })
         .collect();
+
+    if vec_devices.len() == 0 {
+        return Err(anyhow!(
+            "[OnvifClient][file_check] Error parsing devices at {path}."
+        ));
+    }
 
     Ok(vec_devices)
 }
