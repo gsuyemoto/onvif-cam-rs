@@ -367,7 +367,6 @@ fn file_load() -> Result<Vec<Device>> {
 
     let vec_devices: Vec<Device> = contents_str
         .lines()
-        .filter(|line| !line.is_empty())
         .map(|line| line.split(' ').collect::<Vec<&str>>())
         .map(|line| {
             line.iter()
@@ -376,16 +375,21 @@ fn file_load() -> Result<Vec<Device>> {
                 .map(|(_, val)| *val)
                 .collect::<Vec<&str>>()
         })
-        .inspect(|vals| println!("onvif url: {}", vals[1]))
-        .map(|vals| Device {
-            url_rtsp: Some(
-                vals[0]
+        .map(|vals| {
+            let url_rtsp = match vals[0].is_empty() {
+                true => None,
+                false => Some(
+                    vals[0]
+                        .parse()
+                        .expect("[OnvifClient][file_check] Parse error on IP"),
+                ),
+            };
+            Device {
+                url_rtsp,
+                url_onvif: vals[1]
                     .parse()
-                    .expect("[OnvifClient][file_check] Parse error on IP"),
-            ),
-            url_onvif: vals[1]
-                .parse()
-                .expect("[OnvifClient][file_check] Parse error on onvif url"),
+                    .expect("[OnvifClient][file_check] Parse error on onvif url"),
+            }
         })
         .collect();
 

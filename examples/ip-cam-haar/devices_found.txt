@@ -1,2 +1,2 @@
 IP: rtsp://192.168.86.218:554/11 ONVIF: http://192.168.86.218:8080/onvif/device_service
-IP:  ONVIF: http://192.168.86.112:8080/onvif/device_service
+IP: rtsp://192.168.86.112:554/11 ONVIF: http://192.168.86.112:8080/onvif/device_service

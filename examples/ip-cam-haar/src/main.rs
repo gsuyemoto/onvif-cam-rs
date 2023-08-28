@@ -16,8 +16,8 @@ async fn main() -> Result<()> {
 
     println!("----------------------- GET STREAM URI ----------------------");
 
-    onvif_client.send(Messages::GetStreamURI, 0).await?;
-    let stream_uri = onvif_client.get_stream_uri(0)?;
+    onvif_client.send(Messages::GetStreamURI, 1).await?;
+    let stream_uri = onvif_client.get_stream_uri(1)?;
 
     println!("[Main] stream uri: {stream_uri}");
     println!("----------------------- OPEN CAMERA STREAM! ----------------------");
