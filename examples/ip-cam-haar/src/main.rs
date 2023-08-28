@@ -16,10 +16,9 @@ async fn main() -> Result<()> {
 
     println!("----------------------- GET STREAM URI ----------------------");
 
-    onvif_client.send(Messages::GetStreamURI, 1).await?;
-    let stream_uri = onvif_client.get_stream_uri(1)?;
+    let stream_url = onvif_client.send(Messages::GetStreamURI, 1).await?;
 
-    println!("[Main] stream uri: {stream_uri}");
+    println!("[Main] stream uri: {stream_url}");
     println!("----------------------- OPEN CAMERA STREAM! ----------------------");
 
     // Initialize OpenCV
@@ -33,7 +32,7 @@ async fn main() -> Result<()> {
     println!("Loaded haarcascade...");
 
     // Open the RTSP stream
-    let mut capture = VideoCapture::from_file(&stream_uri, CAP_FFMPEG)?;
+    let mut capture = VideoCapture::from_file(&stream_url, CAP_FFMPEG)?;
 
     // Capture and display video frames
     let mut frame = Mat::default();

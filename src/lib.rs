@@ -238,7 +238,7 @@ impl OnvifClient {
     ///
     /// println!("RTP port for streaming video: {}", onvif_client.devices[0].port_rtp);
     /// ```
-    pub async fn send(&mut self, msg: Messages, device_index: usize) -> Result<()> {
+    pub async fn send(&mut self, msg: Messages, device_index: usize) -> Result<String> {
         if self.devices.len() == 0 {
             return Err(anyhow!("[OnvifClient][send] No devices available"));
         }
@@ -283,7 +283,7 @@ impl OnvifClient {
         // Parse SOAP response from HTTP request
         // Depending on method type, parse for
         // certain values only
-        match msg {
+        let result = match msg {
             // UDP broadcast to discover devices
             Messages::Discovery => panic!("Not implemented."),
             Messages::Capabilities => panic!("Not implemented."),
@@ -291,17 +291,18 @@ impl OnvifClient {
             Messages::Profiles => panic!("Not implemented."),
             // Get the RTSP URI from the device
             Messages::GetStreamURI => {
-                let url = parse_soap(response.as_bytes(), Some("Uri"));
-                println!("[OnvifClient][send] Stream url: {}", url);
+                let url_string = parse_soap(response.as_bytes(), Some("Uri"));
+                println!("[OnvifClient][send] rtsp url: {}", url_string);
 
-                let url = url.parse()?;
+                let url = url_string.parse()?;
                 self.devices[device_index].url_rtsp = Some(url);
 
                 let _ = file_save(&self.devices)?;
+                url_string
             }
         };
 
-        Ok(())
+        Ok(result)
     }
 }
 
