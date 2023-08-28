@@ -1,12 +1,10 @@
 use anyhow::{anyhow, Result};
 use reqwest::{Client, RequestBuilder};
-use std::net::IpAddr;
 use std::{io::BufReader, net::SocketAddr, time::Duration};
-use tokio::{io::ErrorKind, net::UdpSocket, time::timeout};
+use tokio::{net::UdpSocket, time::timeout};
 use url::Url;
 use xml::reader::{EventReader, XmlEvent};
 //------ Saving File
-use std::fmt;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -26,9 +24,8 @@ pub enum Messages {
 }
 
 pub struct Device {
-    pub ip: IpAddr,
+    pub url_rtsp: Url,
     pub url_onvif: Url, // http://ip.address/onvif/device_service
-    pub port_rtp: u16,  // port number provided in SETUP response (as range e.g. 6600-6601)
 }
 
 pub struct OnvifClient {
@@ -55,13 +52,17 @@ impl OnvifClient {
         // Otherwise, search for devices using UDP requests
         } else {
             let find_devices = Self::discover().await;
-            if let Ok(devices) = find_devices {
-                // save discovered devices to a local file
-                if let Err(e) = file_save(&devices) {
-                    eprintln!("[OnvifClient] Found devices, but error saving to file: {e}");
-                }
+            match find_devices {
+                Ok(devices) => {
+                    // save discovered devices to a local file
+                    if let Err(e) = file_save(&devices) {
+                        eprintln!("[OnvifClient] Found devices, but error saving to file: {e}");
+                    }
 
-                result.devices = devices;
+                    println!("[OnvifClient] Found {} devices!", &devices.len());
+                    result.devices = devices;
+                }
+                Err(e) => eprintln!("[OnvifClient] Failed {e}"),
             }
         }
 
@@ -86,21 +87,16 @@ impl OnvifClient {
     /// ```
     pub fn get_stream_uri(&self, camera_index: usize) -> Result<String> {
         if self.devices.len() == 0 {
-            return Err(anyhow!("No devices found"));
+            return Err(anyhow!("[OnvifClient][get_stream_uri] No devices found"));
         }
 
-        if self.devices.len() < camera_index - 1 {
-            return Err(anyhow!("No devices for index"));
+        if camera_index >= self.devices.len() {
+            return Err(anyhow!(
+                "[OnvifClient][get_stream_uri] No devices for index"
+            ));
         }
 
-        if self.devices[camera_index].port_rtp == 0 {
-            return Err(anyhow!("No port recorded for device"));
-        }
-
-        let ip = self.devices[camera_index].ip;
-        let port = self.devices[camera_index].port_rtp;
-
-        Ok(format!("{ip}:{port}"))
+        Ok(self.devices[camera_index].url_rtsp.to_string())
     }
 
     /// Sends a multicast request via raw udpsocket on LAN.
@@ -121,13 +117,13 @@ impl OnvifClient {
         let addr_listen: Result<SocketAddr, _> = CLIENT_LISTEN_IP.parse();
         let addr_listen = match addr_listen {
             Ok(addr) => addr,
-            Err(e) => panic!("[Discover] Error creating listen address: {e}"),
+            Err(e) => panic!("[OnvifClient][Discover] Error creating listen address: {e}"),
         };
 
         let addr_send: Result<SocketAddr, _> = DISCOVER_URI.parse();
         let addr_send = match addr_send {
             Ok(addr) => addr,
-            Err(e) => panic!("[Discover] Error creating send address: {e}"),
+            Err(e) => panic!("[OnvifClient][Discover] Error creating send address: {e}"),
         };
 
         // Bind to "0.0.0.0" by default
@@ -142,8 +138,8 @@ impl OnvifClient {
         let success = udp_client.send_to(msg_discover.as_ref(), addr_send).await;
 
         match success {
-            Ok(_) => println!("[Discover] Broadcasting to discover devices..."),
-            Err(e) => panic!("[Discover] Error attempting device discovery: {e}"),
+            Ok(_) => println!("[OnvifClient][Discover] Broadcasting to discover devices..."),
+            Err(e) => panic!("[OnvifClient][Discover] Error attempting device discovery: {e}"),
         }
 
         // Get responses to broadcast message
@@ -173,8 +169,8 @@ impl OnvifClient {
             let success = udp_client.send_to(msg_discover.as_ref(), addr_send).await;
 
             match success {
-                Ok(_) => println!("[Discover] Broadcasting to discover devices..."),
-                Err(e) => panic!("[Discover] Error attempting device discovery: {e}"),
+                Ok(_) => println!("[OnvifClient][Discover] Broadcasting to discover devices..."),
+                Err(e) => panic!("[OnvifClient][Discover] Error attempting device discovery: {e}"),
             }
 
             // Wait 1 sec for a response
@@ -186,34 +182,35 @@ impl OnvifClient {
             {
                 match recv {
                     Ok((size, addr)) => {
-                        println!("[Discover] Received response from: {addr}");
+                        println!("[OnvifClient][Discover] Received response from: {addr}");
 
                         if !devices_check.contains(&addr.to_string()) {
-                            println!("[Discover] Found a new device: {addr}");
+                            println!("[OnvifClient][Discover] Found a new device: {addr}");
                             devices_check = format!("{devices_check}:{addr}");
 
                             // The SOAP response should provide an XAddrs which will be the
                             // ONVIF URL of the device that responded
                             let xaddrs = parse_soap(&buf[..size], Some("XAddrs"));
-                            println!("[Discover] Received reply from: {xaddrs}");
+                            println!("[OnvifClient][Discover] Received reply from: {xaddrs}");
 
                             // Save addr -> SocketAddr and xaddrs -> String (full ONVIF URL)
                             devices_found.push(Device {
-                                ip: addr.ip(),
+                                url_rtsp: addr.to_string().parse()?,
                                 url_onvif: xaddrs.parse()?,
-                                port_rtp: 0,
                             })
                         }
 
                         buf.clear();
                     }
-                    Err(e) => println!("[Discover] Error in response {e}"),
+                    Err(e) => println!("[OnvifClient][Discover] Error in response {e}"),
                 }
             }
         }
 
         if fail {
-            panic!("[Discover] Tried {try_times} times and unable to find any devices.");
+            panic!(
+                "[OnvifClient][Discover] Tried {try_times} times and unable to find any devices."
+            );
         }
 
         Ok(devices_found)
@@ -238,7 +235,7 @@ impl OnvifClient {
     /// ```
     pub async fn send(&mut self, msg: Messages, device_index: usize) -> Result<()> {
         if self.devices.len() == 0 {
-            return Err(anyhow!("No devices available"));
+            return Err(anyhow!("[OnvifClient][send] No devices available"));
         }
 
         let mut try_times = 0;
@@ -281,7 +278,7 @@ impl OnvifClient {
         // Parse SOAP response from HTTP request
         // Depending on method type, parse for
         // certain values only
-        let parsed = match msg {
+        match msg {
             // UDP broadcast to discover devices
             Messages::Discovery => panic!("Not implemented."),
             Messages::Capabilities => panic!("Not implemented."),
@@ -289,10 +286,11 @@ impl OnvifClient {
             Messages::Profiles => panic!("Not implemented."),
             // Get the RTSP URI from the device
             Messages::GetStreamURI => {
-                let uri = parse_soap(response.as_bytes(), Some("Uri"));
-                let url_stream: Url = uri.parse()?;
+                let url = parse_soap(response.as_bytes(), Some("Uri"));
+                self.devices[device_index].url_rtsp = url.parse()?;
+                println!("[OnvifClient][send] Stream url: {url}");
 
-                self.devices[device_index].port_rtp = url_stream.port().unwrap();
+                let _ = file_save(&self.devices)?;
             }
         };
 
@@ -303,7 +301,7 @@ impl OnvifClient {
 // Save the IP address to a file
 // That way, discovery via UDP broadcast can be skipped
 // File Format:
-// IP: URI for device streaming ONVIF: path only part of url RTP: port for rtp
+// RTSP: URL for device streaming ONVIF: URL for Onvif commands
 
 fn file_save(devices: &Vec<Device>) -> Result<()> {
     if devices.len() == 0 {
@@ -326,12 +324,8 @@ fn file_save(devices: &Vec<Device>) -> Result<()> {
 
     let mut contents = String::new();
     for device in devices {
-        let device_line = format!(
-            "IP: {} ONVIF: {} RTP: {}",
-            device.ip, device.url_onvif, device.port_rtp
-        );
-
-        contents = format!("{contents}\n{device_line}");
+        let device_line = format!("IP: {} ONVIF: {}", device.url_rtsp, device.url_onvif);
+        contents = format!("{contents}{device_line}\n");
     }
 
     file.write_all(contents.as_bytes())?;
@@ -361,26 +355,23 @@ fn file_load() -> Result<Vec<Device>> {
 
     let vec_devices: Vec<Device> = contents_str
         .lines()
-        .collect::<Vec<&str>>()
-        .iter()
+        .filter(|line| !line.is_empty())
         .map(|line| line.split(' ').collect::<Vec<&str>>())
         .map(|line| {
             line.iter()
                 .enumerate()
-                .filter(|(i, _)| i % 2 == 0)
+                .filter(|(i, _)| i % 2 == 1)
                 .map(|(_, val)| *val)
                 .collect::<Vec<&str>>()
         })
+        .inspect(|vals| println!("onvif url: {}", vals[1]))
         .map(|vals| Device {
-            ip: vals[0]
+            url_rtsp: vals[0]
                 .parse()
                 .expect("[OnvifClient][file_check] Parse error on IP"),
-            url_onvif: format!("{}{}", vals[0], vals[1])
+            url_onvif: vals[1]
                 .parse()
                 .expect("[OnvifClient][file_check] Parse error on onvif url"),
-            port_rtp: vals[2]
-                .parse()
-                .expect("[OnvifClient][file_check] Parse error on rtp port"),
         })
         .collect();
 

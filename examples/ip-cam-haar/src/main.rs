@@ -19,6 +19,7 @@ async fn main() -> Result<()> {
     onvif_client.send(Messages::GetStreamURI, 0).await?;
     let stream_uri = onvif_client.get_stream_uri(0)?;
 
+    println!("[Main] stream uri: {stream_uri}");
     println!("----------------------- OPEN CAMERA STREAM! ----------------------");
 
     // Initialize OpenCV
