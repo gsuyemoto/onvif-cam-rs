@@ -25,15 +25,15 @@ pub enum Messages {
     GetStreamURI,
 }
 
-struct Device {
-    ip: IpAddr,
-    url_onvif: Url, // http://ip.address/onvif/device_service
-    port_rtp: u16,  // port number provided in SETUP response (as range e.g. 6600-6601)
+pub struct Device {
+    pub ip: IpAddr,
+    pub url_onvif: Url, // http://ip.address/onvif/device_service
+    pub port_rtp: u16,  // port number provided in SETUP response (as range e.g. 6600-6601)
 }
 
 pub struct OnvifClient {
     device_file_exists: bool,
-    devices: Vec<Device>,
+    pub devices: Vec<Device>,
 }
 
 impl OnvifClient {
@@ -66,6 +66,41 @@ impl OnvifClient {
         }
 
         result
+    }
+
+    /// Returns the response received when sending an ONVIF request to a
+    /// device found via device discovery
+    /// The response is SOAP formatted as byte array
+    ///
+    /// # Arguments
+    ///
+    /// * `camera_index` - Which device to get RTP stream URI
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let onvif_client = OnvifClient::new().await?;
+    /// onvif_client.send(Messages::GetStreamURI, 0).await?;
+    ///
+    /// println!("RTP port for streaming video: {}", onvif_client.devices[0].port_rtp);
+    /// ```
+    pub fn get_stream_uri(&self, camera_index: usize) -> Result<String> {
+        if self.devices.len() == 0 {
+            return Err(anyhow!("No devices found"));
+        }
+
+        if self.devices.len() < camera_index - 1 {
+            return Err(anyhow!("No devices for index"));
+        }
+
+        if self.devices[camera_index].port_rtp == 0 {
+            return Err(anyhow!("No port recorded for device"));
+        }
+
+        let ip = self.devices[camera_index].ip;
+        let port = self.devices[camera_index].port_rtp;
+
+        Ok(format!("{ip}:{port}"))
     }
 
     /// Sends a multicast request via raw udpsocket on LAN.

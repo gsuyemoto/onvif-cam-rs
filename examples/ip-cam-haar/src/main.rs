@@ -12,12 +12,12 @@ use opencv::{
 async fn main() -> Result<()> {
     println!("----------------------- DEVICE DISCOVERY ----------------------");
 
-    let mut onvif_client = OnvifClient::new().discover().await?;
+    let mut onvif_client = OnvifClient::new().await;
 
     println!("----------------------- GET STREAM URI ----------------------");
 
-    let streaming_uri = onvif_client.send(Messages::GetStreamURI).await?;
-    println!("socket uri: {streaming_uri}");
+    onvif_client.send(Messages::GetStreamURI, 0).await?;
+    let stream_uri = onvif_client.get_stream_uri(0)?;
 
     println!("----------------------- OPEN CAMERA STREAM! ----------------------");
 
@@ -32,7 +32,7 @@ async fn main() -> Result<()> {
     println!("Loaded haarcascade...");
 
     // Open the RTSP stream
-    let mut capture = VideoCapture::from_file(&streaming_uri, CAP_FFMPEG)?;
+    let mut capture = VideoCapture::from_file(&stream_uri, CAP_FFMPEG)?;
 
     // Capture and display video frames
     let mut frame = Mat::default();
