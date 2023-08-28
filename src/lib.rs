@@ -24,7 +24,7 @@ pub enum Messages {
 }
 
 pub struct Device {
-    pub url_rtsp: Url,
+    pub url_rtsp: Option<Url>,
     pub url_onvif: Url, // http://ip.address/onvif/device_service
 }
 
@@ -96,7 +96,12 @@ impl OnvifClient {
             ));
         }
 
-        Ok(self.devices[camera_index].url_rtsp.to_string())
+        match self.devices[camera_index].url_rtsp.as_ref() {
+            Some(url_rtsp) => Ok(url_rtsp.to_string()),
+            None => Err(anyhow!(
+                "[OnvifClient][get_stream_uri] No RTSP URL for this device"
+            )),
+        }
     }
 
     /// Sends a multicast request via raw udpsocket on LAN.
@@ -193,9 +198,9 @@ impl OnvifClient {
                             let xaddrs = parse_soap(&buf[..size], Some("XAddrs"));
                             println!("[OnvifClient][Discover] Received reply from: {xaddrs}");
 
-                            // Save addr -> SocketAddr and xaddrs -> String (full ONVIF URL)
+                            // Save addr -> String (full ONVIF URL)
                             devices_found.push(Device {
-                                url_rtsp: addr.to_string().parse()?,
+                                url_rtsp: None,
                                 url_onvif: xaddrs.parse()?,
                             })
                         }
@@ -287,8 +292,10 @@ impl OnvifClient {
             // Get the RTSP URI from the device
             Messages::GetStreamURI => {
                 let url = parse_soap(response.as_bytes(), Some("Uri"));
-                self.devices[device_index].url_rtsp = url.parse()?;
-                println!("[OnvifClient][send] Stream url: {url}");
+                println!("[OnvifClient][send] Stream url: {}", url);
+
+                let url = url.parse()?;
+                self.devices[device_index].url_rtsp = Some(url);
 
                 let _ = file_save(&self.devices)?;
             }
@@ -306,7 +313,7 @@ impl OnvifClient {
 fn file_save(devices: &Vec<Device>) -> Result<()> {
     if devices.len() == 0 {
         return Err(anyhow!(
-            "[OnvifClient][file_saver] Provided empty list of devices"
+            "[OnvifClient][file_save] Provided empty list of devices"
         ));
     }
 
@@ -317,14 +324,19 @@ fn file_save(devices: &Vec<Device>) -> Result<()> {
     let mut file = match File::create(&path) {
         Ok(file) => file,
         Err(why) => panic!(
-            "[OnvifClient][file_saver] couldn't create {}: {}",
+            "[OnvifClient][file_save] couldn't create {}: {}",
             display, why
         ),
     };
 
     let mut contents = String::new();
     for device in devices {
-        let device_line = format!("IP: {} ONVIF: {}", device.url_rtsp, device.url_onvif);
+        let url_rtsp = match device.url_rtsp.as_ref() {
+            Some(url) => url.to_string(),
+            None => String::new(),
+        };
+
+        let device_line = format!("IP: {} ONVIF: {}", url_rtsp, device.url_onvif);
         contents = format!("{contents}{device_line}\n");
     }
 
@@ -366,9 +378,11 @@ fn file_load() -> Result<Vec<Device>> {
         })
         .inspect(|vals| println!("onvif url: {}", vals[1]))
         .map(|vals| Device {
-            url_rtsp: vals[0]
-                .parse()
-                .expect("[OnvifClient][file_check] Parse error on IP"),
+            url_rtsp: Some(
+                vals[0]
+                    .parse()
+                    .expect("[OnvifClient][file_check] Parse error on IP"),
+            ),
             url_onvif: vals[1]
                 .parse()
                 .expect("[OnvifClient][file_check] Parse error on onvif url"),
