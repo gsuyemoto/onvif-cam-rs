@@ -201,7 +201,7 @@ impl OnvifClient {
 
                             // The SOAP response should provide an XAddrs which will be the
                             // ONVIF URL of the device that responded
-                            let xaddrs = parse_soap(&buf[..size], Some("XAddrs"));
+                            let xaddrs = parse_soap(&buf[..size], "XAddrs", None);
                             println!("[OnvifClient][Discover] Received reply from: {xaddrs}");
 
                             // Save addr -> String (full ONVIF URL)
@@ -297,14 +297,18 @@ impl OnvifClient {
             Messages::Discovery => String::new(),
             // Get the Image service URL used to get still images directly from device
             Messages::Capabilities => {
-                let image_service = parse_soap(response.as_bytes(), Some("XAddr"));
+                let image_service = parse_soap(response.as_bytes(), "XAddr", Some("Imaging"));
+
+                #[cfg(debug_assertions)]
+                info!("Imaging service: {image_service:?}");
+
                 image_service
             }
             Messages::DeviceInfo => String::new(),
             Messages::Profiles => String::new(),
             // Get the RTSP URI from the device
             Messages::GetStreamURI => {
-                let url_string = parse_soap(response.as_bytes(), Some("Uri"));
+                let url_string = parse_soap(response.as_bytes(), "Uri", None);
                 let url = url_string.parse()?;
                 self.devices[device_index].url_rtsp = Some(url);
 
@@ -417,48 +421,43 @@ fn file_load() -> Result<Vec<Device>> {
     Ok(vec_devices)
 }
 
-fn parse_soap(response: &[u8], find: Option<&str>) -> String {
-    let mut element_found = String::new();
+fn parse_soap(response: &[u8], element_to_find: &str, parent: Option<&str>) -> String {
+    let mut element_found = false;
     let mut element_start = false;
+    let mut result = String::new();
 
     let buffer = BufReader::new(response);
     let parser = EventReader::new(buffer);
-    let mut depth = 0;
+
+    let mut parent_found = match parent {
+        Some(_) => false,
+        None => true,
+    };
 
     for e in parser {
         match e {
-            Ok(XmlEvent::StartElement { name, .. }) => match find {
-                Some(el_to_find) => {
-                    if name.local_name == el_to_find {
-                        element_start = true;
-                    }
+            Ok(XmlEvent::StartElement { name, .. }) => {
+                let element = name.local_name;
+
+                if !parent_found && element == parent.unwrap() {
+                    parent_found = true;
                 }
-                None => {
-                    depth += 1;
-                    println!("{:spaces$}+{name}", "", spaces = depth * 2);
+                if parent_found && element == element_to_find {
+                    element_found = true;
                 }
-            },
-            Ok(XmlEvent::EndElement { name, .. }) => match find {
-                Some(el_to_find) => {
-                    if name.local_name == el_to_find {
-                        element_start = false;
-                    }
+            }
+            Ok(XmlEvent::EndElement { name, .. }) => {
+                // if element_start && name.local_name == element_to_find {
+                //     element_start = false;
+                //     element_found = true;
+                // }
+            }
+            Ok(XmlEvent::Characters(chars)) => {
+                if element_found {
+                    result = chars;
+                    break;
                 }
-                None => {
-                    depth -= 1;
-                    println!("{:spaces$}+{name}", "", spaces = depth * 2);
-                }
-            },
-            Ok(XmlEvent::Characters(chars)) => match find {
-                Some(_) => {
-                    if element_start {
-                        element_found = chars;
-                    }
-                }
-                None => {
-                    eprintln!("[parse_soap] {find:?} not found");
-                }
-            },
+            }
             Err(e) => {
                 eprintln!("Error: {e}");
                 break;
@@ -468,7 +467,7 @@ fn parse_soap(response: &[u8], find: Option<&str>) -> String {
         }
     }
 
-    element_found
+    result
 }
 
 fn soap_msg(msg_type: &Messages) -> String {
