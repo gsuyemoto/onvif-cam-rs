@@ -1,6 +1,14 @@
-A quick repo to help in development of software for IP cameras. This is a very bare bones implementation of the ONVIF protocol. Basically, I have one message implemented which is GetStreamURI. The rest of the lib is dedicated to device discovery. This whole repo is really in support of an RTSP/RTP/H264 lib client I wrote at https://github.com/gsuyemoto/rtsp-client-rs.
+This is a very bare bones implementation of the ONVIF protocol. The following messages are implemented:
 
-The example discovers an IP camera (only tested on a single Topodome) and then uses OpenCV to stream and detect faces via Haar cascades.
+* Discovery
+* Capabilities
+* DeviceInfo
+* Profiles
+* GetStreamURI
+
+Implementation of those messages are bare basics and don't store or parse the entire SOAP response in many cases. This whole lib is really in support of an RTSP/RTP/H264 streaming client I wrote at https://github.com/gsuyemoto/rtsp-client-rs, which will become a Rust crate soon.
+
+The example discovers an IP camera (only tested on a single Topodome) and then uses OpenCV to stream via RTP and detect faces via Haar cascades.
 
 In order to run the example, you will need Clang and OpenCV. On Debian Linux:
 ```bash
