@@ -8,6 +8,9 @@ use xml::reader::{EventReader, XmlEvent};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
+//------ For Debugging Only
+#[cfg(debug_assertions)]
+use log::{debug, info, warn};
 
 const DISCOVER_URI: &'static str = "239.255.255.250:3702";
 const CLIENT_LISTEN_IP: &'static str = "0.0.0.0:0"; // notice port is 0
@@ -35,6 +38,9 @@ pub struct OnvifClient {
 
 impl OnvifClient {
     pub async fn new() -> Self {
+        #[cfg(debug_assertions)]
+        pretty_env_logger::init();
+
         let mut result = OnvifClient {
             devices: Vec::new(),
             device_file_exists: false,
@@ -234,9 +240,9 @@ impl OnvifClient {
     ///
     /// ```
     /// let onvif_client = OnvifClient::new().await?;
-    /// onvif_client.send(Messages::GetStreamURI, 0).await?;
+    /// let rtsp_uri = onvif_client.send(Messages::GetStreamURI, 0).await?;
     ///
-    /// println!("RTP port for streaming video: {}", onvif_client.devices[0].port_rtp);
+    /// println!("RTP port for streaming video: {rtsp_uri}");
     /// ```
     pub async fn send(&mut self, msg: Messages, device_index: usize) -> Result<String> {
         if self.devices.len() == 0 {
@@ -277,7 +283,10 @@ impl OnvifClient {
         }
 
         if fail {
-            panic!("[Discover][send] Tried {try_times} to send {:?}", msg);
+            panic!("[Discover][send] Tried {try_times} to send {msg:?}");
+        } else {
+            #[cfg(debug_assertions)]
+            debug!("SOAP reply for {msg:?}: {response:?}");
         }
 
         // Parse SOAP response from HTTP request
@@ -285,17 +294,22 @@ impl OnvifClient {
         // certain values only
         let result = match msg {
             // UDP broadcast to discover devices
-            Messages::Discovery => panic!("Not implemented."),
-            Messages::Capabilities => panic!("Not implemented."),
-            Messages::DeviceInfo => panic!("Not implemented."),
-            Messages::Profiles => panic!("Not implemented."),
+            Messages::Discovery => String::new(),
+            // Get the Image service URL used to get still images directly from device
+            Messages::Capabilities => {
+                let image_service = parse_soap(response.as_bytes(), Some("XAddr"));
+                image_service
+            }
+            Messages::DeviceInfo => String::new(),
+            Messages::Profiles => String::new(),
             // Get the RTSP URI from the device
             Messages::GetStreamURI => {
                 let url_string = parse_soap(response.as_bytes(), Some("Uri"));
-                println!("[OnvifClient][send] rtsp url: {}", url_string);
-
                 let url = url_string.parse()?;
                 self.devices[device_index].url_rtsp = Some(url);
+
+                #[cfg(debug_assertions)]
+                debug!("RTSP URI: {url_string}");
 
                 let _ = file_save(&self.devices)?;
                 url_string
@@ -442,7 +456,7 @@ fn parse_soap(response: &[u8], find: Option<&str>) -> String {
                     }
                 }
                 None => {
-                    println!("{chars}");
+                    eprintln!("[parse_soap] {find:?} not found");
                 }
             },
             Err(e) => {
