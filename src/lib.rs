@@ -393,7 +393,7 @@ impl OnvifClient {
                 let width             = parse_soap(response, "Width", None);
                 let height            = parse_soap(response, "Height", None);
                 let video_codec       = parse_soap(response, "Encoding", Some("VideoEncoderConfiguration"));
-                let audio_codec       = parse_soap(responseseonse, "Encoding", Some("AudioEncoderConfiguration"));
+                let audio_codec       = parse_soap(response, "Encoding", Some("AudioEncoderConfiguration"));
                 let h264_profile      = parse_soap(response, "H264Profile", None);
 
                 let this_device             = &mut self.devices[device_index];
