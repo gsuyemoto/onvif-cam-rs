@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-onvif-client-rs = { path = "../../" }
+onvif-cam-rs = { path = "../../" }
 anyhow = "1.0"
 opencv = "0.84.5"
 xml-rs = "0.8"

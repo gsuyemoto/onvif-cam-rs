@@ -485,8 +485,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd8b5dd2ae5ed71462c540258bedcb51965123ad7e7ccf4b9a8cafaa4a63576d"
 
 [[package]]
-name = "onvif-client-rs"
-version = "0.1.0"
+name = "onvif-cam-rs"
+version = "0.2.15"
 dependencies = [
  "anyhow",
  "log",

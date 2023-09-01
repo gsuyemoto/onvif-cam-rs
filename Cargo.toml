@@ -1,7 +1,11 @@
 [package]
-name = "onvif-client-rs"
-version = "0.1.0"
+name = "onvif-cam-rs"
+version = "0.2.15"
 edition = "2021"
+authors = ["Gary Suyemoto <me@garysuyemoto.com>"]
+description = "ONVIF IP camera messaging protocol"
+repository = "https://github.com/gsuyemoto/onvif-client-rs"
+license = "MIT"
 
 [dependencies]
 anyhow = "1.0"
