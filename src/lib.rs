@@ -345,60 +345,62 @@ impl OnvifClient {
             // UDP broadcast to discover devices
             Messages::Discovery => String::new(),
             // Get the Image service URL used to get still images directly from device
+            #[rustfmt::skip]
             Messages::Capabilities => {
-                let media_service = parse_soap(response, "XAddr", Some("Media"));
-                let event_service = parse_soap(response, "XAddr", Some("Events"));
-                let analytics_service = parse_soap(response, "XAddr", Some("Analytics"));
-                let ptz_service = parse_soap(response, "XAddr", Some("PTZ"));
-                let image_service = parse_soap(response, "XAddr", Some("Imaging"));
+                let media_service         = parse_soap(response, "XAddr", Some("Media"));
+                let event_service         = parse_soap(response, "XAddr", Some("Events"));
+                let analytics_service     = parse_soap(response, "XAddr", Some("Analytics"));
+                let ptz_service           = parse_soap(response, "XAddr", Some("PTZ"));
+                let image_service         = parse_soap(response, "XAddr", Some("Imaging"));
 
-                let this_device = &mut self.devices[device_index];
-                this_device.service_media = Some(media_service);
-                this_device.service_event = Some(event_service);
-                this_device.service_analytics = Some(analytics_service);
-                this_device.service_ptz = Some(ptz_service);
-                this_device.service_image = Some(image_service.clone());
+                let this_device                 = &mut self.devices[device_index];
+                this_device.service_media       = Some(media_service);
+                this_device.service_event       = Some(event_service);
+                this_device.service_analytics   = Some(analytics_service);
+                this_device.service_ptz         = Some(ptz_service);
+                this_device.service_image       = Some(image_service.clone());
 
                 #[cfg(debug_assertions)]
                 info!("Imaging service: {:?}", this_device.service_image);
 
                 image_service
             }
+            #[rustfmt::skip]
             Messages::DeviceInfo => {
-                let firmware_version = parse_soap(response, "FirmwareVersion", None);
-                let serial_number = parse_soap(response, "SerialNumber", None);
-                let hardware_id = parse_soap(response, "HardwareId", None);
-                let model = parse_soap(response, "Model", None);
-                let manufacturer = parse_soap(response, "Manufacturer", None);
+                let firmware_version     = parse_soap(response, "FirmwareVersion", None);
+                let serial_number        = parse_soap(response, "SerialNumber", None);
+                let hardware_id          = parse_soap(response, "HardwareId", None);
+                let model                = parse_soap(response, "Model", None);
+                let manufacturer         = parse_soap(response, "Manufacturer", None);
 
-                let this_device = &mut self.devices[device_index];
-                this_device.firmware_version = Some(firmware_version);
-                this_device.serial_number = Some(serial_number);
-                this_device.hardware_id = Some(hardware_id);
-                this_device.model = Some(model);
-                this_device.manufacturer = Some(manufacturer.clone());
+                let this_device                 = &mut self.devices[device_index];
+                this_device.firmware_version    = Some(firmware_version);
+                this_device.serial_number       = Some(serial_number);
+                this_device.hardware_id         = Some(hardware_id);
+                this_device.model               = Some(model);
+                this_device.manufacturer        = Some(manufacturer.clone());
 
                 #[cfg(debug_assertions)]
                 info!("Manufacturer: {:?}", this_device.manufacturer);
+
                 #[cfg(debug_assertions)]
                 info!("Model: {:?}", this_device.model);
 
                 manufacturer
             }
+            #[rustfmt::skip]
             Messages::Profiles => {
-                let width = parse_soap(response, "Width", None);
-                let height = parse_soap(response, "Height", None);
-                let video_codec =
-                    parse_soap(response, "Encoding", Some("VideoEncoderConfiguration"));
-                let audio_codec =
-                    parse_soap(response, "Encoding", Some("AudioEncoderConfiguration"));
-                let h264_profile = parse_soap(response, "H264Profile", None);
+                let width             = parse_soap(response, "Width", None);
+                let height            = parse_soap(response, "Height", None);
+                let video_codec       = parse_soap(response, "Encoding", Some("VideoEncoderConfiguration"));
+                let audio_codec       = parse_soap(responseseonse, "Encoding", Some("AudioEncoderConfiguration"));
+                let h264_profile      = parse_soap(response, "H264Profile", None);
 
-                let this_device = &mut self.devices[device_index];
-                this_device.video_dim = Some((width.parse().unwrap(), height.parse().unwrap()));
-                this_device.audio_codec = Some(audio_codec);
-                this_device.h264_profile = Some(h264_profile);
-                this_device.video_codec = Some(video_codec.clone());
+                let this_device             = &mut self.devices[device_index];
+                this_device.video_dim       = Some((width.parse().unwrap(), height.parse().unwrap()));
+                this_device.audio_codec     = Some(audio_codec);
+                this_device.h264_profile    = Some(h264_profile);
+                this_device.video_codec     = Some(video_codec.clone());
 
                 #[cfg(debug_assertions)]
                 info!(
@@ -406,26 +408,30 @@ impl OnvifClient {
                     this_device.video_dim.unwrap().0,
                     this_device.video_dim.unwrap().1
                 );
+
                 #[cfg(debug_assertions)]
                 info!("Video Codec: {video_codec}");
+                
                 #[cfg(debug_assertions)]
                 info!("Audio Codec: {:?}", this_device.audio_codec);
+
                 #[cfg(debug_assertions)]
                 info!("H264 Profile: {:?}", this_device.h264_profile);
 
                 video_codec
             }
             // Get the RTSP URI from the device
+            #[rustfmt::skip]
             Messages::GetStreamURI => {
-                let invalid_after_connect = parse_soap(response, "InvalidAfterConnect", None);
-                let timeout = parse_soap(response, "Timeout", None);
-                let url_string = parse_soap(response, "Uri", None);
-                let url = url_string.parse()?;
+                let invalid_after_connect     = parse_soap(response, "InvalidAfterConnect", None);
+                let timeout                   = parse_soap(response, "Timeout", None);
+                let url_string                = parse_soap(response, "Uri", None);
+                let url                       = url_string.parse()?;
 
-                let this_device = &mut self.devices[device_index];
-                this_device.url_rtsp = Some(url);
-                this_device.invalid_after_connect = Some(invalid_after_connect);
-                this_device.timeout = Some(timeout);
+                let this_device                     = &mut self.devices[device_index];
+                this_device.url_rtsp                = Some(url);
+                this_device.invalid_after_connect   = Some(invalid_after_connect);
+                this_device.timeout                 = Some(timeout);
 
                 #[cfg(debug_assertions)]
                 debug!("RTSP URI: {url_string}");
