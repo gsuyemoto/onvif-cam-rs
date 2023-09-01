@@ -27,8 +27,55 @@ pub enum Messages {
 }
 
 pub struct Device {
-    pub url_rtsp: Option<Url>,
     pub url_onvif: Url, // http://ip.address/onvif/device_service
+    // Get stream
+    pub url_rtsp: Option<Url>,
+    pub invalid_after_connect: Option<String>,
+    pub timeout: Option<String>,
+    // Profiles
+    pub video_codec: Option<String>,
+    pub audio_codec: Option<String>,
+    pub video_dim: Option<(u16, u16)>,
+    pub h264_profile: Option<String>,
+    // Device Info
+    pub manufacturer: Option<String>,
+    pub model: Option<String>,
+    pub firmware_version: Option<String>,
+    pub serial_number: Option<String>,
+    pub hardware_id: Option<String>,
+    // Capabilities
+    pub service_media: Option<String>,
+    pub service_event: Option<String>,
+    pub service_analytics: Option<String>,
+    pub service_ptz: Option<String>,
+    pub service_image: Option<String>,
+}
+
+impl Device {
+    fn new() -> Self {
+        let url_onvif = Url::parse("http://127.0.0.1").unwrap();
+
+        Device {
+            url_onvif,
+            url_rtsp: None,
+            invalid_after_connect: None,
+            timeout: None,
+            video_codec: None,
+            audio_codec: None,
+            video_dim: None,
+            h264_profile: None,
+            manufacturer: None,
+            model: None,
+            firmware_version: None,
+            serial_number: None,
+            hardware_id: None,
+            service_media: None,
+            service_event: None,
+            service_analytics: None,
+            service_ptz: None,
+            service_image: None,
+        }
+    }
 }
 
 pub struct OnvifClient {
@@ -205,10 +252,11 @@ impl OnvifClient {
                             println!("[OnvifClient][Discover] Received reply from: {xaddrs}");
 
                             // Save addr -> String (full ONVIF URL)
-                            devices_found.push(Device {
-                                url_rtsp: None,
-                                url_onvif: xaddrs.parse()?,
-                            })
+                            let onvif_url = xaddrs.parse()?;
+                            let mut device = Device::new();
+
+                            device.url_onvif = onvif_url;
+                            devices_found.push(device);
                         }
 
                         buf.clear();
@@ -298,28 +346,42 @@ impl OnvifClient {
             Messages::Discovery => String::new(),
             // Get the Image service URL used to get still images directly from device
             Messages::Capabilities => {
-                let _media_service = parse_soap(response, "XAddr", Some("Media"));
-                let _event_service = parse_soap(response, "XAddr", Some("Events"));
-                let _analytics_service = parse_soap(response, "XAddr", Some("Analytics"));
-                let _ptz_service = parse_soap(response, "XAddr", Some("PTZ"));
+                let media_service = parse_soap(response, "XAddr", Some("Media"));
+                let event_service = parse_soap(response, "XAddr", Some("Events"));
+                let analytics_service = parse_soap(response, "XAddr", Some("Analytics"));
+                let ptz_service = parse_soap(response, "XAddr", Some("PTZ"));
                 let image_service = parse_soap(response, "XAddr", Some("Imaging"));
 
+                let this_device = &mut self.devices[device_index];
+                this_device.service_media = Some(media_service);
+                this_device.service_event = Some(event_service);
+                this_device.service_analytics = Some(analytics_service);
+                this_device.service_ptz = Some(ptz_service);
+                this_device.service_image = Some(image_service.clone());
+
                 #[cfg(debug_assertions)]
-                info!("Imaging service: {image_service}");
+                info!("Imaging service: {:?}", this_device.service_image);
 
                 image_service
             }
             Messages::DeviceInfo => {
-                let _firmware_version = parse_soap(response, "FirmwareVersion", None);
-                let _serial_number = parse_soap(response, "SerialNumber", None);
-                let _hardware_id = parse_soap(response, "HardwareId", None);
+                let firmware_version = parse_soap(response, "FirmwareVersion", None);
+                let serial_number = parse_soap(response, "SerialNumber", None);
+                let hardware_id = parse_soap(response, "HardwareId", None);
                 let model = parse_soap(response, "Model", None);
                 let manufacturer = parse_soap(response, "Manufacturer", None);
 
+                let this_device = &mut self.devices[device_index];
+                this_device.firmware_version = Some(firmware_version);
+                this_device.serial_number = Some(serial_number);
+                this_device.hardware_id = Some(hardware_id);
+                this_device.model = Some(model);
+                this_device.manufacturer = Some(manufacturer.clone());
+
                 #[cfg(debug_assertions)]
-                info!("Manufacturer: {manufacturer}");
+                info!("Manufacturer: {:?}", this_device.manufacturer);
                 #[cfg(debug_assertions)]
-                info!("Model: {model}");
+                info!("Model: {:?}", this_device.model);
 
                 manufacturer
             }
@@ -332,25 +394,38 @@ impl OnvifClient {
                     parse_soap(response, "Encoding", Some("AudioEncoderConfiguration"));
                 let h264_profile = parse_soap(response, "H264Profile", None);
 
+                let this_device = &mut self.devices[device_index];
+                this_device.video_dim = Some((width.parse().unwrap(), height.parse().unwrap()));
+                this_device.audio_codec = Some(audio_codec);
+                this_device.h264_profile = Some(h264_profile);
+                this_device.video_codec = Some(video_codec.clone());
+
                 #[cfg(debug_assertions)]
-                info!("Video dimensions: {width} x {height}");
+                info!(
+                    "Video dimensions: {} x {}",
+                    this_device.video_dim.unwrap().0,
+                    this_device.video_dim.unwrap().1
+                );
                 #[cfg(debug_assertions)]
                 info!("Video Codec: {video_codec}");
                 #[cfg(debug_assertions)]
-                info!("Audio Codec: {audio_codec}");
+                info!("Audio Codec: {:?}", this_device.audio_codec);
                 #[cfg(debug_assertions)]
-                info!("H264 Profile: {h264_profile}");
+                info!("H264 Profile: {:?}", this_device.h264_profile);
 
-                format!("{video_codec}:{h264_profile}")
+                video_codec
             }
             // Get the RTSP URI from the device
             Messages::GetStreamURI => {
-                let _invalid_after_connect = parse_soap(response, "InvalidAfterConnect", None);
-                let _timeout = parse_soap(response, "Timeout", None);
-
+                let invalid_after_connect = parse_soap(response, "InvalidAfterConnect", None);
+                let timeout = parse_soap(response, "Timeout", None);
                 let url_string = parse_soap(response, "Uri", None);
                 let url = url_string.parse()?;
-                self.devices[device_index].url_rtsp = Some(url);
+
+                let this_device = &mut self.devices[device_index];
+                this_device.url_rtsp = Some(url);
+                this_device.invalid_after_connect = Some(invalid_after_connect);
+                this_device.timeout = Some(timeout);
 
                 #[cfg(debug_assertions)]
                 debug!("RTSP URI: {url_string}");
@@ -443,12 +518,14 @@ fn file_load() -> Result<Vec<Device>> {
                         .expect("[OnvifClient][file_check] Parse error on IP"),
                 ),
             };
-            Device {
-                url_rtsp,
-                url_onvif: vals[1]
-                    .parse()
-                    .expect("[OnvifClient][file_check] Parse error on onvif url"),
-            }
+
+            let mut device = Device::new();
+            device.url_rtsp = url_rtsp;
+            device.url_onvif = vals[1]
+                .parse()
+                .expect("[OnvifClient][file_check] Parse error on onvif url");
+
+            device
         })
         .collect();
 
@@ -463,7 +540,6 @@ fn file_load() -> Result<Vec<Device>> {
 
 fn parse_soap(response: &[u8], element_to_find: &str, parent: Option<&str>) -> String {
     let mut element_found = false;
-    let mut element_start = false;
     let mut result = String::new();
 
     let buffer = BufReader::new(response);
@@ -486,7 +562,7 @@ fn parse_soap(response: &[u8], element_to_find: &str, parent: Option<&str>) -> S
                     element_found = true;
                 }
             }
-            Ok(XmlEvent::EndElement { name, .. }) => {
+            Ok(XmlEvent::EndElement { name: _, .. }) => {
                 // if element_start && name.local_name == element_to_find {
                 //     element_start = false;
                 //     element_found = true;
@@ -511,6 +587,12 @@ fn parse_soap(response: &[u8], element_to_find: &str, parent: Option<&str>) -> S
 }
 
 fn soap_msg(msg_type: &Messages) -> String {
+    let prefix = r#"<Envelope xmlns="http://www.w3.org/2003/05/soap-envelope"
+                         xmlns:tds="http://www.onvif.org/ver10/device/wsdl">
+                 <Body>"#;
+
+    let suffix = "</Body></Envelope><Header/>";
+
     match msg_type {
         Messages::Discovery => format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -531,53 +613,39 @@ fn soap_msg(msg_type: &Messages) -> String {
             </e:Envelope>"#,
         ),
         Messages::Capabilities => format!(
-            r#"<Envelope xmlns="http://www.w3.org/2003/05/soap-envelope"
-                         xmlns:tds="http://www.onvif.org/ver10/device/wsdl">
-               <Header/>
-               <Body>
-                   <tds:GetCapabilities>
-                       <tds:Category>All</tds:Category>
-                   </tds:GetCapabilities>
-               </Body>
-            </Envelope>"#,
+            "
+            {prefix}
+            <tds:GetCapabilities>
+            <tds:Category>All</tds:Category>
+            </tds:GetCapabilities>
+            {suffix}
+        "
         ),
         Messages::DeviceInfo => format!(
-            r#"
-            <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"
-                         xmlns:tds="http://www.onvif.org/ver10/device/wsdl">
-                <s:Body>
-                    <tds:GetDeviceInformation/>
-                </s:Body>
-            </s:Envelope>
-        "#,
+            "
+            {prefix}
+            <tds:GetDeviceInformation/>
+            {suffix}
+        "
         ),
         Messages::Profiles => format!(
-            r#"
-            <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"
-                         xmlns:tds="http://www.onvif.org/ver10/device/wsdl">
-                <soap:Body>
-                    <trt:GetProfiles/>
-                </soap:Body>
-            </s:Envelope>
-        "#,
+            "
+            {prefix}
+            <trt:GetProfiles/>
+            {suffix}
+        "
         ),
-        Messages::GetStreamURI => format!(
-            r#"
-            <soap:Envelope
-                xmlns:soap="http://www.w3.org/2003/05/soap-envelope"
-                xmlns:trt="http://www.onvif.org/ver10/media/wsdl">
-                <soap:Body>
-                    <trt:GetStreamUri>
-                        <trt:StreamSetup>
-                            <tt:Stream>RTP-multicast</tt:Stream>
-                            <tt:Transport>
-                                <tt:Protocol>RTSP</tt:Protocol>
-                            </tt:Transport>
-                        </trt:StreamSetup>
-                    </trt:GetStreamUri>
-                </soap:Body>
-            </soap:Envelope>
-        "#,
-        ),
+        Messages::GetStreamURI => {
+            let stream = r#"<trt:GetStreamUri>
+                   <trt:StreamSetup>
+                       <tt:Stream>RTP-multicast</tt:Stream>
+                       <tt:Transport>
+                           <tt:Protocol>RTSP</tt:Protocol>
+                       </tt:Transport>
+                   </trt:StreamSetup>
+               </trt:GetStreamUri>"#;
+
+            format!("{prefix}{stream}{suffix}")
+        }
     }
 }
