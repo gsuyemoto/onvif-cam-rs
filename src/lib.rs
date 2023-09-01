@@ -292,23 +292,63 @@ impl OnvifClient {
         // Parse SOAP response from HTTP request
         // Depending on method type, parse for
         // certain values only
+        let response = response.as_bytes();
         let result = match msg {
             // UDP broadcast to discover devices
             Messages::Discovery => String::new(),
             // Get the Image service URL used to get still images directly from device
             Messages::Capabilities => {
-                let image_service = parse_soap(response.as_bytes(), "XAddr", Some("Imaging"));
+                let _media_service = parse_soap(response, "XAddr", Some("Media"));
+                let _event_service = parse_soap(response, "XAddr", Some("Events"));
+                let _analytics_service = parse_soap(response, "XAddr", Some("Analytics"));
+                let _ptz_service = parse_soap(response, "XAddr", Some("PTZ"));
+                let image_service = parse_soap(response, "XAddr", Some("Imaging"));
 
                 #[cfg(debug_assertions)]
-                info!("Imaging service: {image_service:?}");
+                info!("Imaging service: {image_service}");
 
                 image_service
             }
-            Messages::DeviceInfo => String::new(),
-            Messages::Profiles => String::new(),
+            Messages::DeviceInfo => {
+                let _firmware_version = parse_soap(response, "FirmwareVersion", None);
+                let _serial_number = parse_soap(response, "SerialNumber", None);
+                let _hardware_id = parse_soap(response, "HardwareId", None);
+                let model = parse_soap(response, "Model", None);
+                let manufacturer = parse_soap(response, "Manufacturer", None);
+
+                #[cfg(debug_assertions)]
+                info!("Manufacturer: {manufacturer}");
+                #[cfg(debug_assertions)]
+                info!("Model: {model}");
+
+                manufacturer
+            }
+            Messages::Profiles => {
+                let width = parse_soap(response, "Width", None);
+                let height = parse_soap(response, "Height", None);
+                let video_codec =
+                    parse_soap(response, "Encoding", Some("VideoEncoderConfiguration"));
+                let audio_codec =
+                    parse_soap(response, "Encoding", Some("AudioEncoderConfiguration"));
+                let h264_profile = parse_soap(response, "H264Profile", None);
+
+                #[cfg(debug_assertions)]
+                info!("Video dimensions: {width} x {height}");
+                #[cfg(debug_assertions)]
+                info!("Video Codec: {video_codec}");
+                #[cfg(debug_assertions)]
+                info!("Audio Codec: {audio_codec}");
+                #[cfg(debug_assertions)]
+                info!("H264 Profile: {h264_profile}");
+
+                format!("{video_codec}:{h264_profile}")
+            }
             // Get the RTSP URI from the device
             Messages::GetStreamURI => {
-                let url_string = parse_soap(response.as_bytes(), "Uri", None);
+                let _invalid_after_connect = parse_soap(response, "InvalidAfterConnect", None);
+                let _timeout = parse_soap(response, "Timeout", None);
+
+                let url_string = parse_soap(response, "Uri", None);
                 let url = url_string.parse()?;
                 self.devices[device_index].url_rtsp = Some(url);
 
