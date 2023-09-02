@@ -405,6 +405,7 @@ dependencies = [
  "anyhow",
  "onvif-cam-rs",
  "opencv",
+ "pretty_env_logger",
  "tokio",
  "xml-rs",
 ]
@@ -570,11 +571,10 @@ checksum = "dd8b5dd2ae5ed71462c540258bedcb51965123ad7e7ccf4b9a8cafaa4a63576d"
 
 [[package]]
 name = "onvif-cam-rs"
-version = "0.2.15"
+version = "0.1.34"
 dependencies = [
  "anyhow",
  "log",
- "pretty_env_logger",
  "reqwest",
  "tokio",
  "url",

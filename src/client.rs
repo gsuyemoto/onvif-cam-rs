@@ -6,12 +6,10 @@ use std::{io::BufReader, net::SocketAddr, time::Duration};
 use tokio::{net::UdpSocket, time::timeout};
 use xml::reader::{EventReader, XmlEvent};
 //------ Saving File
+use log::{debug, info};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
-//------ For Debugging Only
-#[cfg(debug_assertions)]
-use log::{debug, info};
 
 const DISCOVER_URI: &'static str = "239.255.255.250:3702";
 const CLIENT_LISTEN_IP: &'static str = "0.0.0.0:0"; // notice port is 0
@@ -34,9 +32,6 @@ pub struct Client {
 
 impl Client {
     pub async fn new() -> Self {
-        #[cfg(debug_assertions)]
-        pretty_env_logger::init();
-
         let mut result = Client {
             devices: Vec::new(),
             device_file_exists: false,
@@ -257,6 +252,7 @@ impl Client {
 
         'read: loop {
             try_times += 1;
+
             if try_times == 5 {
                 fail = true;
                 break 'read;
@@ -281,10 +277,9 @@ impl Client {
 
         if fail {
             panic!("[Discover][send] Tried {try_times} to send {msg:?}");
-        } else {
-            #[cfg(debug_assertions)]
-            debug!("SOAP reply for {msg:?}: {response:?}");
         }
+
+        debug!("SOAP reply for {msg:?}: {response:?}");
 
         // Parse SOAP response from HTTP request
         // Depending on method type, parse for
@@ -309,7 +304,6 @@ impl Client {
                 this_device.service_ptz         = Some(ptz_service);
                 this_device.service_image       = Some(image_service.clone());
 
-                #[cfg(debug_assertions)]
                 info!("Imaging service: {:?}", this_device.service_image);
 
                 image_service
@@ -329,10 +323,7 @@ impl Client {
                 this_device.model               = Some(model);
                 this_device.manufacturer        = Some(manufacturer.clone());
 
-                #[cfg(debug_assertions)]
                 info!("Manufacturer: {:?}", this_device.manufacturer);
-
-                #[cfg(debug_assertions)]
                 info!("Model: {:?}", this_device.model);
 
                 manufacturer
@@ -351,20 +342,14 @@ impl Client {
                 this_device.h264_profile    = Some(h264_profile);
                 this_device.video_codec     = Some(video_codec.clone());
 
-                #[cfg(debug_assertions)]
                 info!(
                     "Video dimensions: {} x {}",
                     this_device.video_dim.unwrap().0,
                     this_device.video_dim.unwrap().1
                 );
 
-                #[cfg(debug_assertions)]
                 info!("Video Codec: {video_codec}");
-                
-                #[cfg(debug_assertions)]
                 info!("Audio Codec: {:?}", this_device.audio_codec);
-
-                #[cfg(debug_assertions)]
                 info!("H264 Profile: {:?}", this_device.h264_profile);
 
                 video_codec
@@ -382,7 +367,6 @@ impl Client {
                 this_device.invalid_after_connect   = Some(invalid_after_connect);
                 this_device.timeout                 = Some(timeout);
 
-                #[cfg(debug_assertions)]
                 debug!("RTSP URI: {url_string}");
 
                 let _ = file_save(&self.devices)?;

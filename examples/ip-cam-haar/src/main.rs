@@ -10,6 +10,8 @@ use opencv::{
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    pretty_env_logger::init();
+
     println!("----------------------- DEVICE DISCOVERY ----------------------");
 
     let mut onvif_client = Client::new().await;
