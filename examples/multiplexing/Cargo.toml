@@ -1,0 +1,15 @@
+[package]
+name = "ip-cam-haar"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+onvif-cam-rs = { path = "../../" }
+anyhow = "1.0"
+opencv = "0.84.5"
+log = "0.4.20"
+env_logger = "0.10.0"
+
+[dependencies.tokio]
+version = "1"
+features = ["full"]
