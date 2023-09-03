@@ -141,34 +141,14 @@ impl Client {
         // Get the XML SOAP message to broadcast
         let msg_discover = soap_msg(&Messages::Discovery);
 
-        // Send the SOAP message over UDP
-        // Use broadcast IP and Port
-        let success = udp_client.send_to(msg_discover.as_ref(), addr_send).await;
-
-        match success {
-            Ok(_) => println!("[OnvifClient][Discover] Broadcasting to discover devices..."),
-            Err(e) => panic!("[OnvifClient][Discover] Error attempting device discovery: {e}"),
-        }
-
         // Get responses to broadcast message
-        let mut buf = Vec::with_capacity(4096);
-        let mut try_times = 0;
-        let mut fail = false;
-
         let mut devices_found: Vec<Device> = Vec::new();
         let mut devices_check = String::new();
+        let mut try_send = 0;
 
-        // Discover devices using UDP broadcast
-        'read: loop {
-            try_times += 1;
-            if try_times == 10 {
-                // Fail if no devices found
-                if devices_found.is_empty() {
-                    fail = true;
-                }
-
-                break 'read;
-            }
+        while try_send < 2 {
+            let mut try_recv = 0;
+            try_send += 1;
 
             // Send the SOAP message over UDP
             // Used default IP and Port
@@ -176,48 +156,52 @@ impl Client {
 
             match success {
                 Ok(_) => println!("[OnvifClient][Discover] Broadcasting to discover devices..."),
-                Err(e) => panic!("[OnvifClient][Discover] Error attempting device discovery: {e}"),
+                Err(e) => {
+                    eprintln!("[OnvifClient][Discover] Error attempting device discovery: {e}")
+                }
             }
 
-            // Wait 1 sec for a response
-            if let Ok(recv) = timeout(
-                Duration::from_millis(1000),
-                udp_client.recv_buf_from(&mut buf),
-            )
-            .await
-            {
-                match recv {
-                    Ok((size, addr)) => {
-                        println!("[OnvifClient][Discover] Received response from: {addr}");
+            while try_recv < 5 {
+                try_recv += 1;
+                let mut buf = Vec::with_capacity(4096);
 
-                        if !devices_check.contains(&addr.to_string()) {
-                            println!("[OnvifClient][Discover] Found a new device: {addr}");
-                            devices_check = format!("{devices_check}:{addr}");
+                // Wait 1 sec for a response
+                if let Ok(recv) = timeout(
+                    Duration::from_millis(2000),
+                    udp_client.recv_buf_from(&mut buf),
+                )
+                .await
+                {
+                    match recv {
+                        Ok((size, addr)) => {
+                            println!("[OnvifClient][Discover] Received response from: {addr}");
 
-                            // The SOAP response should provide an XAddrs which will be the
-                            // ONVIF URL of the device that responded
-                            let xaddrs = parse_soap(&buf[..size], "XAddrs", None);
-                            println!("[OnvifClient][Discover] Received reply from: {xaddrs}");
+                            if !devices_check.contains(&addr.to_string()) {
+                                println!("[OnvifClient][Discover] Found a new device: {addr}");
+                                devices_check = format!("{devices_check}:{addr}");
 
-                            // Save addr -> String (full ONVIF URL)
-                            let onvif_url = xaddrs.parse()?;
-                            let mut device = Device::new();
+                                // The SOAP response should provide an XAddrs which will be the
+                                // ONVIF URL of the device that responded
+                                let xaddrs = parse_soap(&buf[..size], "XAddrs", None);
+                                println!("[OnvifClient][Discover] Received reply from: {xaddrs}");
+                                println!("[OnvifClient][Discover] Size of response: {size}");
 
-                            device.url_onvif = onvif_url;
-                            devices_found.push(device);
+                                // Save addr -> String (full ONVIF URL)
+                                let onvif_url = xaddrs.parse()?;
+                                let mut device = Device::new();
+
+                                device.url_onvif = onvif_url;
+                                devices_found.push(device);
+                            }
                         }
-
-                        buf.clear();
+                        Err(e) => eprintln!("[OnvifClient][Discover] Error in response {e}"),
                     }
-                    Err(e) => println!("[OnvifClient][Discover] Error in response {e}"),
                 }
             }
         }
 
-        if fail {
-            panic!(
-                "[OnvifClient][Discover] Tried {try_times} times and unable to find any devices."
-            );
+        if devices_found.is_empty() {
+            panic!("[OnvifClient][Discover] Unable to find any devices.");
         }
 
         Ok(devices_found)

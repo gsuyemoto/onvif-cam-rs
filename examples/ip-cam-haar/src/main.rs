@@ -5,7 +5,7 @@ use opencv::{
     imgproc::{cvt_color, rectangle, COLOR_BGR2GRAY},
     objdetect,
     prelude::*,
-    videoio::{VideoCapture, CAP_FFMPEG},
+    videoio::{VideoCapture, CAP_FFMPEG, CAP_PROP_FOURCC},
 };
 
 #[tokio::main]
@@ -38,6 +38,20 @@ async fn main() -> Result<()> {
 
     // Open the RTSP stream
     let mut capture = VideoCapture::from_file(&stream_url, CAP_FFMPEG)?;
+
+    // Get the FourCC codec code
+    let codec_code = capture.get(CAP_PROP_FOURCC).unwrap() as i32;
+
+    // Convert the codec code to a human-readable string
+    let codes = &[
+        (codec_code & 0xFF) as u8,
+        ((codec_code >> 8) & 0xFF) as u8,
+        ((codec_code >> 16) & 0xFF) as u8,
+        ((codec_code >> 24) & 0xFF) as u8,
+    ];
+    let codec_fourcc = String::from_utf8_lossy(codes);
+
+    println!("Codec FourCC: {}", codec_fourcc);
 
     // Capture and display video frames
     let mut frame = Mat::default();
