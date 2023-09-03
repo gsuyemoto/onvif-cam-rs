@@ -8,7 +8,9 @@ onvif-cam-rs = { path = "../../" }
 anyhow = "1.0"
 opencv = "0.84.5"
 xml-rs = "0.8"
-pretty_env_logger = "0.5.0"
+log = "0.4.20"
+simple-log = "1.6.0"
+env_logger = "0.10.0"
 
 [dependencies.tokio]
 version = "1"

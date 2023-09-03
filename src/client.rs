@@ -66,6 +66,12 @@ impl Client {
         result
     }
 
+    /// Returns the number of devices known
+    ///
+    pub fn devices_found(&self) -> usize {
+        self.devices.len()
+    }
+
     /// Returns the response received when sending an ONVIF request to a
     /// device found via device discovery
     /// The response is SOAP formatted as byte array
@@ -146,8 +152,6 @@ impl Client {
 
         // Get responses to broadcast message
         let mut buf = Vec::with_capacity(4096);
-        let mut buf_size: usize = 0;
-
         let mut try_times = 0;
         let mut fail = false;
 
