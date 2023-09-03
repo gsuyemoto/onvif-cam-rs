@@ -720,7 +720,7 @@ checksum = "dd8b5dd2ae5ed71462c540258bedcb51965123ad7e7ccf4b9a8cafaa4a63576d"
 
 [[package]]
 name = "onvif-cam-rs"
-version = "0.1.36"
+version = "0.1.37"
 dependencies = [
  "anyhow",
  "log",

@@ -37,7 +37,8 @@ async fn main() -> Result<()> {
     println!("Loaded haarcascade...");
 
     // Open the RTSP stream
-    let mut capture = VideoCapture::from_file(&stream_url, CAP_FFMPEG)?;
+    // let mut capture = VideoCapture::from_file(&stream_url, CAP_FFMPEG)?;
+    let mut capture = VideoCapture::from_file("rtsp://192.168.86.141:554/11", CAP_FFMPEG)?;
 
     // Get the FourCC codec code
     let codec_code = capture.get(CAP_PROP_FOURCC).unwrap() as i32;
