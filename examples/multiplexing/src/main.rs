@@ -19,9 +19,9 @@ async fn main() -> Result<()> {
 
     println!("----------------------- GET STREAM URI ----------------------");
 
-    // let _ = onvif_client.send(Messages::Capabilities, 0).await?;
-    // let _ = onvif_client.send(Messages::DeviceInfo, 0).await?;
-    // let _ = onvif_client.send(Messages::Profiles, 0).await?;
+    let _ = onvif_client.send(Messages::Capabilities, 0).await?;
+    let _ = onvif_client.send(Messages::DeviceInfo, 0).await?;
+    let _ = onvif_client.send(Messages::Profiles, 0).await?;
     let stream_url_01 = onvif_client.send(Messages::GetStreamURI, 0).await?;
     let stream_url_02 = onvif_client.send(Messages::GetStreamURI, 1).await?;
 
