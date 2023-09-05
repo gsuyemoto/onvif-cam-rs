@@ -1,19 +1,16 @@
 use crate::device::*;
+use crate::io;
 
 use anyhow::{anyhow, Result};
+use log::{debug, info};
 use reqwest::RequestBuilder;
 use std::{io::BufReader, net::SocketAddr, time::Duration};
 use tokio::{net::UdpSocket, time::timeout};
+use uuid::Uuid;
 use xml::reader::{EventReader, XmlEvent};
-//------ Saving File
-use log::{debug, info};
-use std::fs::File;
-use std::io::{Read, Write};
-use std::path::Path;
 
 const DISCOVER_URI: &'static str = "239.255.255.250:3702";
 const CLIENT_LISTEN_IP: &'static str = "0.0.0.0:0"; // notice port is 0
-const FILE_FOUND_DEVICES: &'static str = "devices_found.txt";
 
 /// All of the ONVIF requests that this program plans to support
 #[derive(Debug)]
@@ -38,7 +35,7 @@ impl Client {
         };
 
         // Check if a file of saved devices exists already
-        if let Ok(already_found_devices) = file_load() {
+        if let Ok(already_found_devices) = io::file_load() {
             println!(
                 "[OnvifClient] Found {} devices in local file.",
                 already_found_devices.len()
@@ -52,7 +49,7 @@ impl Client {
             match find_devices {
                 Ok(devices) => {
                     // save discovered devices to a local file
-                    if let Err(e) = file_save(&devices) {
+                    if let Err(e) = io::file_save(&devices) {
                         eprintln!("[OnvifClient] Found devices, but error saving to file: {e}");
                     }
 
@@ -139,7 +136,8 @@ impl Client {
         let udp_client = UdpSocket::bind(addr_listen).await?;
 
         // Get the XML SOAP message to broadcast
-        let msg_discover = soap_msg(&Messages::Discovery);
+        let uuid = Uuid::new_v4();
+        let msg_discover = soap_msg(&Messages::Discovery, uuid);
 
         // Get responses to broadcast message
         let mut devices_found: Vec<Device> = Vec::new();
@@ -229,13 +227,14 @@ impl Client {
             return Err(anyhow!("[OnvifClient][send] No devices available"));
         }
 
+        let uuid = Uuid::new_v4();
         let mut try_times = 0;
         let mut fail = false;
         let mut response: String = String::new();
 
         // Try to send the reqwest try_times (5)
         // with a 1sec timemout for each reqwest
-        let soap_msg = soap_msg(&msg);
+        let soap_msg = soap_msg(&msg, uuid);
         let client = reqwest::Client::new();
 
         'read: loop {
@@ -357,112 +356,13 @@ impl Client {
 
                 debug!("RTSP URI: {url_string}");
 
-                let _ = file_save(&self.devices)?;
+                let _ = io::file_save(&self.devices)?;
                 url_string
             }
         };
 
         Ok(result)
     }
-}
-
-// Save the IP address to a file
-// That way, discovery via UDP broadcast can be skipped
-// File Format:
-// RTSP: URL for device streaming ONVIF: URL for Onvif commands
-
-fn file_save(devices: &Vec<Device>) -> Result<()> {
-    if devices.len() == 0 {
-        return Err(anyhow!(
-            "[OnvifClient][file_save] Provided empty list of devices"
-        ));
-    }
-
-    let path = Path::new(FILE_FOUND_DEVICES);
-    let display = path.display();
-
-    // Open a file in write-only mode, returns `io::Result<File>`
-    let mut file = match File::create(&path) {
-        Ok(file) => file,
-        Err(why) => panic!(
-            "[OnvifClient][file_save] couldn't create {}: {}",
-            display, why
-        ),
-    };
-
-    let mut contents = String::new();
-    for device in devices {
-        let url_rtsp = match device.url_rtsp.as_ref() {
-            Some(url) => url.to_string(),
-            None => String::new(),
-        };
-
-        let device_line = format!("IP: {} ONVIF: {}", url_rtsp, device.url_onvif);
-        contents = format!("{contents}{device_line}\n");
-    }
-
-    file.write_all(contents.as_bytes())?;
-
-    Ok(())
-}
-
-fn file_load() -> Result<Vec<Device>> {
-    let open = Path::new(FILE_FOUND_DEVICES);
-    let path = open.display();
-    let mut contents_str = String::new();
-
-    // Open a file in read-only mode, returns `io::Result<File>`
-    let mut file = File::open(&open)?;
-    let contents_size = file.read_to_string(&mut contents_str)?;
-
-    if contents_size == 0 {
-        return Err(anyhow!(
-            "[OnvifClient][file_check] File found at {path}, but empty"
-        ));
-    }
-    if !contents_str.contains("IP") {
-        return Err(anyhow!(
-            "[OnvifClient][file_check] File found at {path}, but no devices"
-        ));
-    }
-
-    let vec_devices: Vec<Device> = contents_str
-        .lines()
-        .map(|line| line.split(' ').collect::<Vec<&str>>())
-        .map(|line| {
-            line.iter()
-                .enumerate()
-                .filter(|(i, _)| i % 2 == 1)
-                .map(|(_, val)| *val)
-                .collect::<Vec<&str>>()
-        })
-        .map(|vals| {
-            let url_rtsp = match vals[0].is_empty() {
-                true => None,
-                false => Some(
-                    vals[0]
-                        .parse()
-                        .expect("[OnvifClient][file_check] Parse error on IP"),
-                ),
-            };
-
-            let mut device = Device::new();
-            device.url_rtsp = url_rtsp;
-            device.url_onvif = vals[1]
-                .parse()
-                .expect("[OnvifClient][file_check] Parse error on onvif url");
-
-            device
-        })
-        .collect();
-
-    if vec_devices.len() == 0 {
-        return Err(anyhow!(
-            "[OnvifClient][file_check] Error parsing devices at {path}."
-        ));
-    }
-
-    Ok(vec_devices)
 }
 
 fn parse_soap(response: &[u8], element_to_find: &str, parent: Option<&str>) -> String {
@@ -513,66 +413,78 @@ fn parse_soap(response: &[u8], element_to_find: &str, parent: Option<&str>) -> S
     result
 }
 
-fn soap_msg(msg_type: &Messages) -> String {
+fn soap_msg(msg_type: &Messages, uuid: Uuid) -> String {
     let prefix = r#"<Envelope xmlns="http://www.w3.org/2003/05/soap-envelope"
                          xmlns:tds="http://www.onvif.org/ver10/device/wsdl">
                  <Body>"#;
 
-    let suffix = "</Body></Envelope><Header/>";
-
-    match msg_type {
-        Messages::Discovery => format!(
-            r#"<?xml version="1.0" encoding="UTF-8"?>
+    let prefix_discovery = r#"<?xml version="1.0" encoding="UTF-8"?>
                         <e:Envelope xmlns:e="http://www.w3.org/2003/05/soap-envelope"
                         xmlns:w="http://schemas.xmlsoap.org/ws/2004/08/addressing"
                         xmlns:d="http://schemas.xmlsoap.org/ws/2005/04/discovery"
-                        xmlns:dn="http://www.onvif.org/ver10/network/wsdl">
-                <e:Header>
-                    <w:MessageID>uuid:8d6ab73e-280a-4f23-967d-d2ec20b6d893</w:MessageID>
-                    <w:To>urn:schemas-xmlsoap-org:ws:2005:04:discovery</w:To>
-                    <w:Action>http://schemas.xmlsoap.org/ws/2005/04/discovery/Probe</w:Action>
-                </e:Header>
-                <e:Body>
-                    <d:Probe>
-                        <d:Types>dn:NetworkVideoTransmitter</d:Types>
-                    </d:Probe>
-                </e:Body>
-            </e:Envelope>"#,
+                        xmlns:dn="http://www.onvif.org/ver10/network/wsdl">"#;
+
+    // Insert UUID in the MessageID here
+    let header_pt1 = format!("<e:Header><w:MessageID>uuid:{uuid}</w:MessageID>");
+    let header_pt2 = r#"<w:To>urn:schemas-xmlsoap-org:ws:2005:04:discovery</w:To>
+                     <w:Action>http://schemas.xmlsoap.org/ws/2005/04/discovery/Probe</w:Action>
+                     </e:Header>"#;
+
+    let suffix = "</Body></Envelope><Header/>";
+    let suffix_discovery = r#"<e:Body>
+                                   <d:Probe>
+                                       <d:Types>dn:NetworkVideoTransmitter</d:Types>
+                                   </d:Probe>
+                               </e:Body>
+                           </e:Envelope>"#;
+
+    let stream = r#"<trt:GetStreamUri>
+           <trt:StreamSetup>
+               <tt:Stream>RTP-multicast</tt:Stream>
+               <tt:Transport>
+                   <tt:Protocol>RTSP</tt:Protocol>
+               </tt:Transport>
+           </trt:StreamSetup>
+       </trt:GetStreamUri>"#;
+
+    match msg_type {
+        Messages::Discovery => format!(
+            "
+                {prefix_discovery}
+                {header_pt1}
+                {header_pt2}
+                {suffix_discovery}
+            "
         ),
         Messages::Capabilities => format!(
             "
-            {prefix}
-            <tds:GetCapabilities>
-            <tds:Category>All</tds:Category>
-            </tds:GetCapabilities>
-            {suffix}
-        "
+                {prefix}
+                <tds:GetCapabilities>
+                <tds:Category>All</tds:Category>
+                </tds:GetCapabilities>
+                {suffix}
+            "
         ),
         Messages::DeviceInfo => format!(
             "
-            {prefix}
-            <tds:GetDeviceInformation/>
-            {suffix}
-        "
+                {prefix}
+                <tds:GetDeviceInformation/>
+                {suffix}
+            "
         ),
         Messages::Profiles => format!(
             "
-            {prefix}
-            <trt:GetProfiles/>
-            {suffix}
-        "
+                {prefix}
+                <trt:GetProfiles/>
+                {suffix}
+            "
         ),
-        Messages::GetStreamURI => {
-            let stream = r#"<trt:GetStreamUri>
-                   <trt:StreamSetup>
-                       <tt:Stream>RTP-multicast</tt:Stream>
-                       <tt:Transport>
-                           <tt:Protocol>RTSP</tt:Protocol>
-                       </tt:Transport>
-                   </trt:StreamSetup>
-               </trt:GetStreamUri>"#;
-
-            format!("{prefix}{stream}{suffix}")
-        }
+        Messages::GetStreamURI => format!(
+            "
+                {prefix}
+                {stream}
+                {suffix}
+            "
+        ),
     }
 }
