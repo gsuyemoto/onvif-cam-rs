@@ -174,6 +174,9 @@ impl Client {
                         Ok((size, addr)) => {
                             println!("[OnvifClient][Discover] Received response from: {addr}");
 
+                            let resp_text = String::from_utf8_lossy(&buf[..size]);
+                            info!("Discover response -----------------------\n{resp_text}");
+
                             if !devices_check.contains(&addr.to_string()) {
                                 println!("[OnvifClient][Discover] Found a new device: {addr}");
                                 devices_check = format!("{devices_check}:{addr}");
@@ -256,6 +259,7 @@ impl Client {
             match timeout(Duration::from_secs(1), request.send()).await {
                 Ok(resp) => {
                     response = resp?.text().await?;
+                    debug!("SOAP reply for {msg:?}: {}", response);
                     break 'read;
                 }
                 Err(_) => println!("[Discover][send] Error waiting for response, trying again..."),
@@ -265,8 +269,6 @@ impl Client {
         if fail {
             panic!("[Discover][send] Tried {try_times} to send {msg:?}");
         }
-
-        debug!("SOAP reply for {msg:?}: {response:?}");
 
         // Parse SOAP response from HTTP request
         // Depending on method type, parse for
