@@ -44,6 +44,7 @@ async fn main() -> Result<()> {
 
 */
 
+pub mod camera;
 pub mod client;
 pub mod device;
 pub mod io;

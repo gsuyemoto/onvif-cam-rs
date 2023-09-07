@@ -1,0 +1,1 @@
+This examples uses the ONVIF lib to discover and establish a connection to an IP camera on the local network. The example app will then pass the RTSP URL to OpenCV to handle video streaming and face detection using a loaded HAAR cascade model.
