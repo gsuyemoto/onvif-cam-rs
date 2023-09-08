@@ -18,9 +18,9 @@ async fn main() -> Result<()> {
         cameras.push(camera);
     }
 
-    match cameras[0].get_stream_uri() {
-        Ok(uri) => println!("Stream uri: {uri}"),
-        Err(e) => eprintln!("Ooops {e}"),
+    match &cameras[0].stream.uri {
+        Some(url) => println!("Stream uri: {url}"),
+        None => panic!("Ooops"),
     }
 
     Ok(())

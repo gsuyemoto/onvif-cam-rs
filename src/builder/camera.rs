@@ -18,7 +18,11 @@ pub trait CameraBuilder {
         let mut ptz_service       = parse_soap(&response[..], "XAddr", Some("PTZ"),         true);
         let mut image_service     = parse_soap(&response[..], "XAddr", Some("Imaging"),     true);
 
-        info!("Imaging service: {}", image_service[0]);
+        info!("media_service: {}", media_service[0]);
+        info!("event_service: {}", event_service[0]);
+        info!("analytics_service: {}", analytics_service[0]);
+        info!("ptz_service: {}", ptz_service[0]);
+        info!("image_service: {}", image_service[0]);
 
         let mut result         = Capabilities::default();
         result.url_media       = Some(media_service.remove(0).parse()?);
@@ -32,7 +36,7 @@ pub trait CameraBuilder {
 
     #[rustfmt::skip]
     async fn set_device_info(onvif_url: url::Url) -> Result<DeviceInfo> {
-        let response                 = client::send(onvif_url, Messages::Capabilities).await?;
+        let response                 = client::send(onvif_url, Messages::DeviceInfo).await?;
         let response                 = response.bytes().await?;
         let mut firmware_version     = parse_soap(&response[..], "FirmwareVersion",  None, true);
         let mut serial_number        = parse_soap(&response[..], "SerialNumber",     None, true);
@@ -55,7 +59,7 @@ pub trait CameraBuilder {
 
     #[rustfmt::skip]
     async fn set_profiles(onvif_url: url::Url) -> Result<Profiles> {
-        let response              = client::send(onvif_url, Messages::Capabilities).await?;
+        let response              = client::send(onvif_url, Messages::Profiles).await?;
         let response              = response.bytes().await?;
         let width                 = parse_soap(&response[..], "Width",          None,                                 true);
         let height                = parse_soap(&response[..], "Height",         None,                                 true);
@@ -83,17 +87,16 @@ pub trait CameraBuilder {
 
     #[rustfmt::skip]
     async fn set_stream_uri(onvif_url: url::Url) -> Result<StreamUri> {
-        let response                      = client::send(onvif_url, Messages::Capabilities).await?;
+        let response                      = client::send(onvif_url, Messages::GetStreamURI).await?;
         let response                      = response.bytes().await?;
         let mut invalid_after_connect     = parse_soap(&response[..], "InvalidAfterConnect", None, true);
         let mut timeout                   = parse_soap(&response[..], "Timeout",             None, true);
-        let url_string                    = parse_soap(&response[..], "Uri",                 None, true);
-        let url                           = url_string[0].parse()?;
+        let mut url_string                = parse_soap(&response[..], "Uri",                 None, true);
 
-        info!("RTSP URI: {}", url_string[0]);
+        info!("RTSP URL: {}", url_string[0]);
         
         let mut result                 = StreamUri::default(); 
-        result.uri                     = Some(url);
+        result.uri                     = Some(url_string.remove(0));
         result.invalid_connect         = Some(invalid_after_connect.remove(0));
         result.timeout                 = Some(timeout.remove(0));
 

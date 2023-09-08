@@ -9,7 +9,7 @@ pub struct Camera {
     capabilities: Capabilities,
     profiles: Profiles,
     device_info: DeviceInfo,
-    stream: StreamUri,
+    pub stream: StreamUri,
 }
 
 #[async_trait]
@@ -17,8 +17,8 @@ impl CameraBuilder for Camera {
     #[rustfmt::skip]
     async fn build_all(&mut self) -> Result<()> {
         self.capabilities =     Camera::set_capabilities(    self.base.url_onvif.clone()).await?;
-        self.profiles =         Camera::set_profiles(        self.base.url_onvif.clone()).await?;
         self.device_info =      Camera::set_device_info(     self.base.url_onvif.clone()).await?;
+        self.profiles =         Camera::set_profiles(        self.base.url_onvif.clone()).await?;
         self.stream =           Camera::set_stream_uri(      self.base.url_onvif.clone()).await?;
 
         Ok(())
@@ -34,9 +34,5 @@ impl Camera {
             device_info: DeviceInfo::default(),
             stream: StreamUri::default(),
         }
-    }
-
-    pub fn get_stream_uri(&self) -> Result<&url::Url, &str> {
-        self.stream.uri.as_ref().ok_or("No uri found").clone()
     }
 }

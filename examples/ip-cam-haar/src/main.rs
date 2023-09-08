@@ -1,5 +1,7 @@
 use anyhow::Result;
-use onvif_cam_rs::client::{Client, Messages};
+use onvif_cam_rs::builder::camera::CameraBuilder;
+use onvif_cam_rs::client::{self, Messages};
+use onvif_cam_rs::device::camera::Camera;
 use opencv::{
     highgui::{imshow, wait_key},
     imgproc::{cvt_color, rectangle, COLOR_BGR2GRAY},
@@ -14,14 +16,19 @@ async fn main() -> Result<()> {
 
     println!("----------------------- DEVICE DISCOVERY ----------------------");
 
-    let mut onvif_client = Client::new().await;
+    let mut devices = client::discover().await?;
+    let mut cameras: Vec<Camera> = Vec::new();
 
-    println!("----------------------- GET STREAM URI ----------------------");
+    for device in devices {
+        let mut camera = Camera::new(device);
+        camera.build_all().await?;
+        cameras.push(camera);
+    }
 
-    let _ = onvif_client.send(Messages::Capabilities, 0).await?;
-    let _ = onvif_client.send(Messages::DeviceInfo, 0).await?;
-    let _ = onvif_client.send(Messages::Profiles, 0).await?;
-    let stream_url = onvif_client.send(Messages::GetStreamURI, 0).await?;
+    let stream_url = match &cameras[0].stream.uri {
+        Some(url) => url,
+        None => panic!("Ooops"),
+    };
 
     println!("[Main] stream uri: {stream_url}");
     println!("----------------------- OPEN CAMERA STREAM! ----------------------");
@@ -37,7 +44,7 @@ async fn main() -> Result<()> {
     println!("Loaded haarcascade...");
 
     // Open the RTSP stream
-    let mut capture = VideoCapture::from_file(&stream_url, CAP_FFMPEG)?;
+    let mut capture = VideoCapture::from_file(stream_url, CAP_FFMPEG)?;
 
     // Get the FourCC codec code
     let codec_code = capture.get(CAP_PROP_FOURCC).unwrap() as i32;

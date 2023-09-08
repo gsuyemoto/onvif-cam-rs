@@ -46,7 +46,7 @@ pub struct Profiles {
 #[derive(Default)]
 #[rustfmt::skip]
 pub struct StreamUri {
-    pub uri:               Option<url::Url>,
+    pub uri:               Option<String>,
     pub timeout:           Option<String>,
     pub invalid_connect:   Option<String>,
 }
