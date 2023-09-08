@@ -1,12 +1,15 @@
-pub trait Builder {
-    type DeviceType;
+use crate::device::*;
+use anyhow::Result;
 
-    fn set_capabilities(&mut self, response: bytes::Bytes);
-    fn set_device_info(&mut self, response: bytes::Bytes);
-    fn set_profiles(&mut self, response: bytes::Bytes);
-    fn set_stream_uri(&mut self, response: bytes::Bytes);
-    fn set_services(&mut self, response: bytes::Bytes);
-    fn set_service_capabilities(&mut self, response: bytes::Bytes);
-    fn set_dns(&mut self, response: bytes::Bytes);
-    fn build(self) -> Self::DeviceType;
+pub mod camera;
+
+pub trait Builder {
+    fn set_capabilities(onvif_url: url::Url) -> Result<Capabilities>;
+    fn set_device_info(onvif_url: url::Url) -> Result<DeviceInfo>;
+    fn set_profiles(onvif_url: url::Url) -> Result<Profiles>;
+    fn set_stream_uri(onvif_url: url::Url) -> Result<StreamUri>;
+    fn set_services(onvif_url: url::Url);
+    fn set_service_capabilities(onvif_url: url::Url);
+    fn set_dns(onvif_url: url::Url);
+    fn build_all(&mut self);
 }

@@ -1,5 +1,7 @@
 use anyhow::Result;
-use onvif_cam_rs::client::{Client, Messages};
+use onvif_cam_rs::builder::camera::CameraBuilder;
+use onvif_cam_rs::client::{self, Messages};
+use onvif_cam_rs::device::camera::Camera;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -7,22 +9,18 @@ async fn main() -> Result<()> {
 
     println!("----------------------- DEVICE DISCOVERY ----------------------");
 
-    let mut devices = Client::discover().await?;
+    let mut devices = client::discover().await?;
+    let mut cameras: Vec<Camera> = Vec::new();
 
     for device in devices {
-        onvif_client
-            .send(Messages::Capabilities, dev_index)
-            .await?
-            .send(Messages::DeviceInfo, dev_index)
-            .await?
-            .send(Messages::Profiles, dev_index)
-            .await?
-            .send(Messages::GetDNS, dev_index)
-            .await?
-            .send(Messages::GetStreamURI, dev_index)
-            .await?;
+        let mut camera = Camera::new(device);
+        camera.build_all().await?;
+        cameras.push(camera);
+    }
 
-        println!("[Main] stream uri: {}", onvif_client.get_stream_uri(0)?);
+    match cameras[0].get_stream_uri() {
+        Ok(uri) => println!("Stream uri: {uri}"),
+        Err(e) => eprintln!("Ooops {e}"),
     }
 
     Ok(())

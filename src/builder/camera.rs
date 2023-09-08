@@ -1,76 +1,62 @@
-use super::Builder;
-use crate::device::Camera;
+use crate::device::{Capabilities, DeviceInfo, Profiles, StreamUri};
 use crate::utils::parse_soap;
+use crate::client::{self, Messages};
 
-#[derive(Default)]
-pub struct CameraBuilder {
-    pub url_onvif: Url, // http://ip.address/onvif/device_service
-    // Get stream
-    pub url_rtsp: Option<Url>,
-    pub invalid_after_connect: Option<String>,
-    pub timeout: Option<String>,
-    // Profiles
-    pub video_codec: Option<String>,
-    pub audio_codec: Option<String>,
-    pub video_dim: Option<(u16, u16)>,
-    pub h264_profile: Option<String>,
-    // Camera Info
-    pub manufacturer: Option<String>,
-    pub model: Option<String>,
-    pub firmware_version: Option<String>,
-    pub serial_number: Option<String>,
-    pub hardware_id: Option<String>,
-    // Capabilities
-    pub service_media: Option<String>,
-    pub service_event: Option<String>,
-    pub service_analytics: Option<String>,
-    pub service_ptz: Option<String>,
-    pub service_image: Option<String>,
-}
+use log::info;
+use anyhow::Result;
+use async_trait::async_trait;
 
-impl Builder for Device {
-    type DeviceType = Camera;
-
+#[async_trait]
+pub trait CameraBuilder {
     #[rustfmt::skip]
-    fn set_capabilities(&mut self, response: bytes::Bytes) {
-        let response              = response.slice(..);
-        let media_service         = parse_soap(&response[..], "XAddr", Some("Media"),       true);
-        let event_service         = parse_soap(&response[..], "XAddr", Some("Events"),      true);
-        let analytics_service     = parse_soap(&response[..], "XAddr", Some("Analytics"),   true);
-        let ptz_service           = parse_soap(&response[..], "XAddr", Some("PTZ"),         true);
-        let image_service         = parse_soap(&response[..], "XAddr", Some("Imaging"),     true);
+    async fn set_capabilities(onvif_url: url::Url) -> Result<Capabilities> {
+        let response              = client::send(onvif_url, Messages::Capabilities).await?;
+        let response              = response.bytes().await?;
+        let mut media_service     = parse_soap(&response[..], "XAddr", Some("Media"),       true);
+        let mut event_service     = parse_soap(&response[..], "XAddr", Some("Events"),      true);
+        let mut analytics_service = parse_soap(&response[..], "XAddr", Some("Analytics"),   true);
+        let mut ptz_service       = parse_soap(&response[..], "XAddr", Some("PTZ"),         true);
+        let mut image_service     = parse_soap(&response[..], "XAddr", Some("Imaging"),     true);
 
         info!("Imaging service: {}", image_service[0]);
 
-        self.service_media       = Some(media_service[0].clone());
-        self.service_event       = Some(event_service[0].clone());
-        self.service_analytics   = Some(analytics_service[0].clone());
-        self.service_ptz         = Some(ptz_service[0].clone());
-        self.service_image       = Some(image_service[0].clone());
+        let mut result         = Capabilities::default();
+        result.url_media       = Some(media_service.remove(0).parse()?);
+        result.url_events      = Some(event_service.remove(0).parse()?);
+        result.url_analytics   = Some(analytics_service.remove(0).parse()?);
+        result.url_ptz         = Some(ptz_service.remove(0).parse()?);
+        result.url_imaging     = Some(image_service.remove(0).parse()?);
+
+        Ok(result)
     }
 
     #[rustfmt::skip]
-    fn set_device_info(&mut self, response: bytes::Bytes) {
-        let response             = response.slice(..);
-        let firmware_version     = parse_soap(&response[..], "FirmwareVersion",  None, true);
-        let serial_number        = parse_soap(&response[..], "SerialNumber",     None, true);
-        let hardware_id          = parse_soap(&response[..], "HardwareId",       None, true);
-        let model                = parse_soap(&response[..], "Model",            None, true);
-        let manufacturer         = parse_soap(&response[..], "Manufacturer",     None, true);
+    async fn set_device_info(onvif_url: url::Url) -> Result<DeviceInfo> {
+        let response                 = client::send(onvif_url, Messages::Capabilities).await?;
+        let response                 = response.bytes().await?;
+        let mut firmware_version     = parse_soap(&response[..], "FirmwareVersion",  None, true);
+        let mut serial_number        = parse_soap(&response[..], "SerialNumber",     None, true);
+        let mut hardware_id          = parse_soap(&response[..], "HardwareId",       None, true);
+        let mut model                = parse_soap(&response[..], "Model",            None, true);
+        let mut manufacturer         = parse_soap(&response[..], "Manufacturer",     None, true);
 
         info!("Manufacturer: {}", manufacturer[0]);
         info!("Model: {}", model[0]);
 
-        self.firmware_version    = Some(firmware_version[0].clone());
-        self.serial_number       = Some(serial_number[0].clone());
-        self.hardware_id         = Some(hardware_id[0].clone());
-        self.model               = Some(model[0].clone());
-        self.manufacturer        = Some(manufacturer[0].clone());
+        let mut result             = DeviceInfo::default(); 
+        result.firmware_version    = Some(firmware_version.remove(0));
+        result.serial_num          = Some(serial_number.remove(0));
+        result.hardware_id         = Some(hardware_id.remove(0));
+        result.model               = Some(model.remove(0));
+        result.manufacturer        = Some(manufacturer.remove(0));
+
+        Ok(result)
     }
 
     #[rustfmt::skip]
-    fn set_profiles(&mut self, response: bytes::Bytes) {
-        let response             = response.slice(..);
+    async fn set_profiles(onvif_url: url::Url) -> Result<Profiles> {
+        let response              = client::send(onvif_url, Messages::Capabilities).await?;
+        let response              = response.bytes().await?;
         let width                 = parse_soap(&response[..], "Width",          None,                                 true);
         let height                = parse_soap(&response[..], "Height",         None,                                 true);
         let mut video_codec       = parse_soap(&response[..], "Encoding",       Some("VideoEncoderConfiguration"),    true);
@@ -86,50 +72,48 @@ impl Builder for Device {
             height[0]
         );
 
-        self.video_dim       = Some((width[0].parse().unwrap(), height[0].parse().unwrap()));
-        self.audio_codec     = Some(audio_codec.remove(0));
-        self.h264_profile    = Some(h264_profile.remove(0));
-        self.video_codec     = Some(video_codec.remove(0));
+        let mut result         = Profiles::default(); 
+        result.video_dim       = Some((width[0].parse().unwrap(), height[0].parse().unwrap()));
+        result.audio_codec     = Some(audio_codec.remove(0));
+        result.h264_profile    = Some(h264_profile.remove(0));
+        result.video_codec     = Some(video_codec.remove(0));
+
+        Ok(result)
     }
 
     #[rustfmt::skip]
-    fn set_stream_uri(&mut self, response: bytes::Bytes) {
-        let response                  = response.slice(..);
-        let invalid_after_connect     = parse_soap(&response[..], "InvalidAfterConnect", None, true);
-        let timeout                   = parse_soap(&response[..], "Timeout",             None, true);
-        let url_string                = parse_soap(&response[..], "Uri",                 None, true);
-        let url                       = url_string[0].parse()?;
+    async fn set_stream_uri(onvif_url: url::Url) -> Result<StreamUri> {
+        let response                      = client::send(onvif_url, Messages::Capabilities).await?;
+        let response                      = response.bytes().await?;
+        let mut invalid_after_connect     = parse_soap(&response[..], "InvalidAfterConnect", None, true);
+        let mut timeout                   = parse_soap(&response[..], "Timeout",             None, true);
+        let url_string                    = parse_soap(&response[..], "Uri",                 None, true);
+        let url                           = url_string[0].parse()?;
 
         info!("RTSP URI: {}", url_string[0]);
         
-        self.url_rtsp                = Some(url);
-        self.invalid_after_connect   = Some(invalid_after_connect[0].clone());
-        self.timeout                 = Some(timeout[0].clone());
+        let mut result                 = StreamUri::default(); 
+        result.uri                     = Some(url);
+        result.invalid_connect         = Some(invalid_after_connect.remove(0));
+        result.timeout                 = Some(timeout.remove(0));
 
-        // let _ = io::file_save(&self.devices)?;
+        Ok(result)
     }
 
     #[rustfmt::skip]
-    fn set_services(&mut self, response: bytes::Bytes) {
-        info!("[CameraBuilder] set services")
+    fn set_services(onvif_url: url::Url) {
+        info!("[CameraBuilder] set services");
     }
 
     #[rustfmt::skip]
-    fn set_service_capabilities(&mut self, response: bytes::Bytes) {
-        info!("[CameraBuilder] set service capabilities")
+    fn set_service_capabilities(onvif_url: url::Url) {
+        info!("[CameraBuilder] set service capabilities");
     }
 
     #[rustfmt::skip]
-    fn set_dns(&mut self, response: bytes::Bytes) {
-        info!("[CameraBuilder] set dns")
+    fn set_dns(onvif_url: url::Url) {
+        info!("[CameraBuilder] set dns");
     }
 
-    fn build(self) -> Camera {
-        info!("[CameraBuilder] creating camera... ")
-
-        Camera {
-            
-        }
-    }
-
+    async fn build_all(&mut self) -> Result<()>;
 }
