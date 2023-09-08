@@ -34,8 +34,10 @@ pub enum Messages {
 /// # Examples
 ///
 /// ```
-/// // This enumerates a Vec<Device>
-/// let devices = Client::discover().await?;
+/// // Find all IP Devices on local network using ONVIF
+/// let mut devices = client::discover().await?;
+/// let mut cameras: Vec<Camera> = Vec::new();
+///
 /// ```
 pub async fn discover() -> Result<Vec<Device>> {
     // Discovery is based on ws-discovery
@@ -138,16 +140,19 @@ pub async fn discover() -> Result<Vec<Device>> {
 ///
 /// # Arguments
 ///
+/// * `onvif_url` - The main ONVIF service URL to the device
 /// * `msg` - The SOAP request as Messages Enum
-/// * `device_index` - Which device to send message
 ///
 /// # Examples
 ///
 /// ```
-/// let onvif_client = OnvifClient::new().await?;
-/// let rtsp_uri = onvif_client.send(Messages::GetStreamURI, 0).await?;
+/// let mut devices = client::discover().await?;
+/// let onvif_url = devices[0].base.url;
 ///
-/// println!("RTP port for streaming video: {rtsp_uri}");
+/// let response = client::send(onvif_url, Messages::GetStreamURI).await?;
+/// let stream_url = response.remove(0);
+///
+/// println!("RTP port for streaming video: {stream_url}");
 /// ```
 pub async fn send(onvif_url: url::Url, msg: Messages) -> Result<Response> {
     let uuid = Uuid::new_v4();

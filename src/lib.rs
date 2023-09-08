@@ -9,38 +9,34 @@ This Rust lib provides, at the moment, a very barebones implementation of some o
 When creating a new Client object, the Client will first look to see if there is a file in the base directory to provide information about cameras and IP addresses. If the file is not present, then the Client will broadcast a predefined message on the network and compliant cameras should reply with their IP address. With the IP address in hand, you can then continue to query the devices for more information.
 
 ```Rust
-use onvif_cam_rs::client::{Client, Message};
+use anyhow::Result;
+use onvif_cam_rs::builder::camera::CameraBuilder;
+use onvif_cam_rs::client::{self, Messages};
+use onvif_cam_rs::device::camera::Camera;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let mut onvif_client = Client::new().await;
-    let rtsp_addr = onvif_client.send(Messages::GetStreamURI, 0).await?;
+    // Find all IP Devices on local network using ONVIF
 
-    // Provide rtsp_addr to your choice of RTSP clients
+    let mut devices = client::discover().await?;
+    let mut cameras: Vec<Camera> = Vec::new();
+
+    // Enumerate all Camera devices found
+    for device in devices {
+        let mut camera = Camera::new(device);
+        camera.build_all().await?;
+        cameras.push(camera);
+    }
+
+    // Get the RTSP streaming URL for the first camera
+    match &cameras[0].stream.uri {
+        Some(url) => println!("Stream uri: {url}"),
+        None => panic!("Ooops"),
+    }
 }
 
 ```
 
-Logging is integrated into the lib and you can get some useful information by using it.
-Let's use pretty_env_logger crate:
-
-```Rust
-use onvif_cam_rs::client::{Client, Message};
-
-#[tokio::main]
-async fn main() -> Result<()> {
-    pretty_env_logger::init();
-
-    let mut onvif_client = Client::new().await;
-    let _ = onvif_client.send(Messages::Capabilities, 0).await?;
-    let _ = onvif_client.send(Messages::DeviceInfo, 0).await?;
-    let _ = onvif_client.send(Messages::Profiles, 0).await?;
-    let rtsp_addr = onvif_client.send(Messages::GetStreamURI, 0).await?;
-
-    // Provide rtsp_addr to your choice of RTSP clients
-}
-
-```
 
 */
 
