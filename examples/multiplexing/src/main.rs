@@ -1,5 +1,7 @@
 use anyhow::Result;
-use onvif_cam_rs::client::{Client, Messages};
+use onvif_cam_rs::builder::camera::CameraBuilder;
+use onvif_cam_rs::client::{self, Messages};
+use onvif_cam_rs::device::camera::Camera;
 use opencv::{
     core::{hconcat, Size},
     highgui::{self, imshow, wait_key},
@@ -15,21 +17,32 @@ async fn main() -> Result<()> {
 
     println!("----------------------- DEVICE DISCOVERY ----------------------");
 
-    let mut onvif_client = Client::new().await;
+    let mut devices = client::discover().await?;
+    let mut cameras: Vec<Camera> = Vec::new();
 
-    println!("----------------------- GET STREAM URI ----------------------");
+    for device in devices {
+        let mut camera = Camera::new(device);
+        camera.build_all().await?;
+        cameras.push(camera);
+    }
 
-    let _ = onvif_client.send(Messages::Capabilities, 0).await?;
-    let _ = onvif_client.send(Messages::DeviceInfo, 0).await?;
-    let _ = onvif_client.send(Messages::Profiles, 0).await?;
-    let stream_url_01 = onvif_client.send(Messages::GetStreamURI, 0).await?;
-    let stream_url_02 = onvif_client.send(Messages::GetStreamURI, 1).await?;
+    let stream_url_01 = match &cameras[0].stream.uri {
+        Some(url) => url,
+        None => panic!("Ooops"),
+    };
 
+    let stream_url_02 = match &cameras[1].stream.uri {
+        Some(url) => url,
+        None => panic!("Ooops"),
+    };
+
+    println!("[Main] stream uri: {stream_url_01}");
+    println!("[Main] stream uri: {stream_url_02}");
     println!("----------------------- OPEN CAMERA STREAM! ----------------------");
 
     // Open the RTSP stream
-    let mut capture_01 = VideoCapture::from_file(&stream_url_01, CAP_FFMPEG)?;
-    let mut capture_02 = VideoCapture::from_file(&stream_url_02, CAP_FFMPEG)?;
+    let mut capture_01 = VideoCapture::from_file(stream_url_01, CAP_FFMPEG)?;
+    let mut capture_02 = VideoCapture::from_file(stream_url_02, CAP_FFMPEG)?;
 
     // Get the FourCC codec code
     let codec_code_01 = capture_01.get(CAP_PROP_FOURCC).unwrap() as i32;

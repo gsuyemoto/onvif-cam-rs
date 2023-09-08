@@ -1,18 +1,18 @@
-use crate::device::*;
+use crate::camera::Camera;
 
 use anyhow::{anyhow, Result};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
-const FILE_FOUND_DEVICES: &'static str = "devices_found.txt";
+const FILE_FOUND_CAMERAS: &'static str = "cameras_found.txt";
 
 // Save the IP address to a file
 // That way, discovery via UDP broadcast can be skipped
 // File Format:
 // RTSP: URL for device streaming ONVIF: URL for Onvif commands
-pub fn file_save(devices: &Vec<Device>) -> Result<()> {
-    if devices.len() == 0 {
+pub fn file_save(cameras: &Vec<Camera>) -> Result<()> {
+    if cameras.len() == 0 {
         return Err(anyhow!(
             "[OnvifClient][file_save] Provided empty list of devices"
         ));
@@ -25,14 +25,14 @@ pub fn file_save(devices: &Vec<Device>) -> Result<()> {
     let mut file = File::create(&path)?;
 
     let mut contents = String::new();
-    for device in devices {
-        let url_rtsp = match device.url_rtsp.as_ref() {
+    for camera in cameras {
+        let url_rtsp = match camera.url_rtsp.as_ref() {
             Some(url) => url.to_string(),
             None => String::new(),
         };
 
-        let device_line = format!("IP: {} ONVIF: {}", url_rtsp, device.url_onvif);
-        contents = format!("{contents}{device_line}\n");
+        let camera_line = format!("IP: {} ONVIF: {}", url_rtsp, camera.url_onvif);
+        contents = format!("{contents}{camera_line}\n");
     }
 
     file.write_all(contents.as_bytes())?;
@@ -40,7 +40,7 @@ pub fn file_save(devices: &Vec<Device>) -> Result<()> {
     Ok(())
 }
 
-pub fn file_load() -> Result<Vec<Device>> {
+pub fn file_load() -> Result<Vec<Camera>> {
     let open = Path::new(FILE_FOUND_DEVICES);
     let path = open.display();
     let mut contents_str = String::new();
@@ -60,7 +60,7 @@ pub fn file_load() -> Result<Vec<Device>> {
         ));
     }
 
-    let vec_devices: Vec<Device> = contents_str
+    let vec_cameras: Vec<Camera> = contents_str
         .lines()
         .map(|line| line.split(' ').collect::<Vec<&str>>())
         .map(|line| {
@@ -80,21 +80,21 @@ pub fn file_load() -> Result<Vec<Device>> {
                 ),
             };
 
-            let mut device = Device::new();
-            device.url_rtsp = url_rtsp;
-            device.url_onvif = vals[1]
+            let mut camera = Camera::new();
+            camera.url_rtsp = url_rtsp;
+            camera.url_onvif = vals[1]
                 .parse()
                 .expect("[OnvifClient][file_check] Parse error on onvif url");
 
-            device
+            camera
         })
         .collect();
 
-    if vec_devices.len() == 0 {
+    if vec_cameras.len() == 0 {
         return Err(anyhow!(
             "[OnvifClient][file_check] Error parsing devices at {path}."
         ));
     }
 
-    Ok(vec_devices)
+    Ok(vec_cameras)
 }
