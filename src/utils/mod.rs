@@ -26,15 +26,15 @@ pub fn parse_soap(
                 if !parent_found && element == parent.unwrap() {
                     parent_found = true;
                 }
+
                 if parent_found && element == element_to_find {
                     element_found = true;
                 }
             }
-            Ok(XmlEvent::EndElement { name: _, .. }) => {
-                // if element_start && name.local_name == element_to_find {
-                //     element_start = false;
-                //     element_found = true;
-                // }
+            Ok(XmlEvent::EndElement { name, .. }) => {
+                if element_found && name.local_name == element_to_find {
+                    element_found = false;
+                }
             }
             Ok(XmlEvent::Characters(chars)) => {
                 if element_found {

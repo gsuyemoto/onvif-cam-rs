@@ -51,6 +51,17 @@ pub struct StreamUri {
     pub invalid_connect:   Option<String>,
 }
 
+#[derive(Default)]
+#[rustfmt::skip]
+pub struct Services {
+    pub analytics:     Option<String>,
+    pub event:         Option<String>,
+    pub io:            Option<String>,
+    pub imaging:       Option<String>,
+    pub media:         Option<String>,
+    pub ptz:           Option<String>,
+}
+
 pub fn parse_device_type(dev_type: String) -> DeviceTypes {
     match dev_type {
         a if a.contains("NetworkVideoTransmitter") => DeviceTypes::Camera,

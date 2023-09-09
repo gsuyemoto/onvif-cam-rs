@@ -1,8 +1,8 @@
-use crate::device::{Capabilities, DeviceInfo, Profiles, StreamUri};
+use crate::device::{Services, Capabilities, DeviceInfo, Profiles, StreamUri};
 use crate::utils::parse_soap;
 use crate::client::{self, Messages};
 
-use log::info;
+use log::{trace, debug, info};
 use anyhow::Result;
 use async_trait::async_trait;
 
@@ -96,27 +96,91 @@ pub trait CameraBuilder {
         info!("RTSP URL: {}", url_string[0]);
         
         let mut result                 = StreamUri::default(); 
-        result.uri                     = Some(url_string.remove(0));
         result.invalid_connect         = Some(invalid_after_connect.remove(0));
-        result.timeout                 = Some(timeout.remove(0));
+        result.uri                     = Some(url_string           .remove(0));
+        result.timeout                 = Some(timeout              .remove(0));
 
         Ok(result)
     }
 
     #[rustfmt::skip]
-    fn set_services(onvif_url: url::Url) {
-        info!("[CameraBuilder] set services");
+    async fn set_services(onvif_url: url::Url) -> Result<Services> {
+        let response         = client::send(onvif_url, Messages::GetServices).await?;
+        let response         = response.bytes().await?;
+        let services         = parse_soap(&response[..], "XAddr", None, false);
+        let mut result       = Services::default(); 
+
+        for service in services {
+            info!("Service: {}", service);
+            
+            // Match Service URL Address by keywords
+            match &service {
+                s if s.contains("analytics")    => result.analytics    = Some(service.clone()),
+                s if s.contains("event")        => result.event        = Some(service.clone()),
+                s if s.contains("deviceIO")     => result.io           = Some(service.clone()),
+                s if s.contains("imaging")      => result.imaging      = Some(service.clone()),
+                s if s.contains("media")        => result.media        = Some(service.clone()),
+                s if s.contains("ptz")          => result.ptz          = Some(service.clone()),
+                _ => eprintln!("[Builder[Camera] Encountered unknown Service"),
+            }
+        }
+
+        Ok(result)
     }
 
     #[rustfmt::skip]
-    fn set_service_capabilities(onvif_url: url::Url) {
-        info!("[CameraBuilder] set service capabilities");
+    async fn set_service_capabilities(onvif_url: url::Url) -> Result<()> {
+        debug!("Event Service URL: {onvif_url}");
+        let response                      = client::send(onvif_url, Messages::GetServiceCapabilities).await?;
+        // let response                      = response.bytes().await?;
+        let response                      = response.text().await?;
+
+        debug!("Get EVENT capabilities: \n{response}");
+
+        Ok(())
     }
 
     #[rustfmt::skip]
-    fn set_dns(onvif_url: url::Url) {
-        info!("[CameraBuilder] set dns");
+    async fn set_dns(onvif_url: url::Url) -> Result<()> {
+        let response                      = client::send(onvif_url, Messages::GetDNS).await?;
+        // let response                      = response.bytes().await?;
+        let response                      = response.text().await?;
+
+        debug!("Get DNS: \n{response}");
+
+        Ok(())
     }
 
+    async fn set_dot11_status(onvif_url: url::Url) -> Result<()> {
+        let response                      = client::send(onvif_url, Messages::GetDot11Status).await?;
+        // let response                      = response.bytes().await?;
+        let response                      = response.text().await?;
+
+        trace!("Get Dot11 Status\n {response}");
+
+        Ok(())
+    }
+    
+    async fn set_geo_location(onvif_url: url::Url) -> Result<()> {
+        let response                      = client::send(onvif_url, Messages::GetGeoLocation).await?;
+        // let response                      = response.bytes().await?;
+        let response                      = response.text().await?;
+
+        trace!("Get Geo Location\n {response}");
+        
+        Ok(())
+    }
+    
+    async fn set_pull_point_sub(onvif_url: url::Url) -> Result<()> {
+        debug!("Event Service URL: {onvif_url}");
+        let response                      = client::send(onvif_url, Messages::CreatePullPointSubscriptionRequest).await?;
+        // let response                      = response.bytes().await?;
+        let response                      = response.text().await?;
+
+        debug!("Get Pull Point Subscription\n {response}");
+
+        Ok(())
+    }
+    
     async fn build_all(&mut self) -> Result<()>;
 }

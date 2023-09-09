@@ -2,7 +2,7 @@ use crate::device::{parse_device_type, Device};
 use crate::utils::parse_soap;
 
 use anyhow::{anyhow, Result};
-use log::debug;
+use log::trace;
 use reqwest::{RequestBuilder, Response};
 use std::{net::SocketAddr, time::Duration};
 use tokio::{net::UdpSocket, time::timeout};
@@ -23,6 +23,17 @@ pub enum Messages {
     GetServices, // a summarized version of Capabilities
     GetServiceCapabilities,
     GetDNS,
+    GetNetworkInterfaces,
+    GetNetworkProtocols,
+    GetNetworkDefaultGateway,
+    GetDot11Capabilities,
+    GetDot11Status,
+    GetSystemUris,
+    GetSystemLog,
+    GetDiscoveryMode,
+    GetGeoLocation,
+    GetStorageConfigurations,
+    CreatePullPointSubscriptionRequest,
 }
 
 /// Sends a multicast request via raw udpsocket on LAN.
@@ -179,7 +190,7 @@ pub async fn send(onvif_url: url::Url, msg: Messages) -> Result<Response> {
         // Send the HTTP request and receive the response
         match timeout(Duration::from_secs(1), request.send()).await {
             Ok(resp) => {
-                debug!("SOAP reply for {msg:?}: {resp:?}");
+                trace!("SOAP reply for {msg:?}: {resp:?}");
                 let response = resp?;
                 return Ok(response);
             }
@@ -283,6 +294,100 @@ pub fn soap_msg(msg_type: &Messages, uuid: Uuid) -> String {
             "
                 {prefix}
                 <tds:GetDNS/>
+                {suffix}
+            "
+        ),
+        Messages::GetNetworkInterfaces => format!(
+            "
+                {prefix}
+                <tds:GetNetworkInterfaces/>
+                {suffix}
+            "
+        ),
+        Messages::GetNetworkProtocols => format!(
+            "
+                {prefix}
+                <tds:GetNetworkProtocols/>
+                {suffix}
+            "
+        ),
+        Messages::GetNetworkDefaultGateway => format!(
+            "
+                {prefix}
+                <tds:GetNetworkDefaultGateway/>
+                {suffix}
+            "
+        ),
+        Messages::GetDot11Capabilities => format!(
+            "
+                {prefix}
+                <tds:GetDot11Capabilities/>
+                {suffix}
+            "
+        ),
+        Messages::GetDot11Status => format!(
+            "
+                {prefix}
+                <tds:GetDot11Status/>
+                {suffix}
+            "
+        ),
+        Messages::GetSystemUris => format!(
+            "
+                {prefix}
+                <tds:GetSystemUris/>
+                {suffix}
+            "
+        ),
+        Messages::GetSystemLog => format!(
+            "
+                {prefix}
+                <tds:GetSystemLog/>
+                {suffix}
+            "
+        ),
+        Messages::GetDiscoveryMode => format!(
+            "
+                {prefix}
+                <tds:GetDiscoveryMode/>
+                {suffix}
+            "
+        ),
+        Messages::GetGeoLocation => format!(
+            "
+                {prefix}
+                <tds:GetGeoLocation/>
+                {suffix}
+            "
+        ),
+        Messages::GetStorageConfigurations => format!(
+            "
+                {prefix}
+                <tds:GetStorageConfigurations/>
+                {suffix}
+            "
+        ),
+        // CREATE PULL POINT WITH OPTIONAL PARAMS
+        // Messages::CreatePullPointSubscriptionRequest => format!(
+        //     "
+        //         {prefix}
+        //         <wsnt:CreatePullPointSubscription>
+        //             <wsnt:Filter>
+        //                 <wsnt:TopicExpression Dialect=\"http://www.onvif.org/ver10/tev/topicExpression/ConcreteSet\">
+        //                     tns1:Device/tnsaxis:VMD/Camera1
+        //                 </wsnt:TopicExpression>
+        //                 <!-- Add more Filter elements if needed -->
+        //             </wsnt:Filter>
+        //             <wsnt:InitialTerminationTime>PT3600S</wsnt:InitialTerminationTime>
+        //             <!-- Add more subscription parameters if needed -->
+        //         </wsnt:CreatePullPointSubscription>
+        //         {suffix}
+        //     "
+        // ),
+        Messages::CreatePullPointSubscriptionRequest => format!(
+            "
+                {prefix}
+                <wsnt:CreatePullPointSubscription/>
                 {suffix}
             "
         ),

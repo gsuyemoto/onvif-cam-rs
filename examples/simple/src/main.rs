@@ -9,19 +9,22 @@ async fn main() -> Result<()> {
 
     println!("----------------------- DEVICE DISCOVERY ----------------------");
 
-    let mut devices = client::discover().await?;
-    let mut cameras: Vec<Camera> = Vec::new();
+    // let mut devices = client::discover().await?;
+    // let mut cameras: Vec<Camera> = Vec::new();
 
-    for device in devices {
-        let mut camera = Camera::new(device);
-        camera.build_all().await?;
-        cameras.push(camera);
-    }
+    // for device in devices {
+    //     let mut camera = Camera::new(device);
+    //     camera.build_all().await?;
+    //     cameras.push(camera);
+    // }
 
-    match &cameras[0].stream.uri {
-        Some(url) => println!("Stream uri: {url}"),
-        None => panic!("Ooops"),
-    }
+    // match &cameras[0].stream.uri {
+    //     Some(url) => println!("Stream uri: {url}"),
+    //     None => panic!("Ooops"),
+    // }
+
+    let mut camera = Camera::from("http://192.168.86.218:8080/onvif/device_service");
+    camera.build_all().await?;
 
     Ok(())
 }

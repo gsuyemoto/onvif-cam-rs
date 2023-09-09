@@ -11,6 +11,7 @@ This is a very bare bones implementation of the ONVIF protocol. The following me
 * DeviceInfo
 * Profiles
 * GetStreamURI
+* and a couple more now... (see below for complete list)
 
 Implementation of those messages are bare basics and don't store or parse the entire SOAP response in many cases. This whole lib is really in support of an RTSP/RTP/H264 streaming client I wrote at https://github.com/gsuyemoto/rtsp-rtp-rs, which will become a Rust crate soon.
 
@@ -50,6 +51,42 @@ async fn main() -> Result<()> {
         Some(url) => println!("Stream uri: {url}"),
         None => panic!("Ooops"),
     }
+
+    Ok(())
 }
 
 ```
+
+A super simple Camera device object creation can go like this:
+
+````Rust
+use anyhow::Result;
+use onvif_cam_rs::builder::camera::CameraBuilder;
+use onvif_cam_rs::device::camera::Camera;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let mut camera = Camera::from("http://192.168.1.100:8080/onvif/device_service");
+    camera.build_all().await?;
+
+    Ok(())
+}
+
+````
+
+Which might work out better when testing as some cameras and devices might time out with too many discovery messages.
+
+### Messages Implemented:
+* Discovery
+* Capabilities
+* DeviceInfo
+* Profiles
+* GetStreamURI
+* GetServices
+
+### Messages Started (Basic Response and no Parsing of Reply):
+* GetServiceCapabilities
+* GetDNS
+* GetDot11Status
+* GetGeoLocation
+* CreatePullPointSubscriptionRequest
