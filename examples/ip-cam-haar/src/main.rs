@@ -25,7 +25,7 @@ async fn main() -> Result<()> {
         cameras.push(camera);
     }
 
-    let stream_url = match &cameras[0].stream.uri {
+    let stream_url = match &cameras[1].stream.uri {
         Some(url) => url,
         None => panic!("Ooops"),
     };

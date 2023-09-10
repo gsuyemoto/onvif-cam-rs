@@ -62,6 +62,17 @@ pub struct Services {
     pub ptz:           Option<String>,
 }
 
+#[derive(Default)]
+#[rustfmt::skip]
+pub struct EventCapabilities {
+    pub pause_support:            Option<bool>,
+    pub pull_point_supoort:       Option<bool>,
+    pub sub_policy_support:       Option<bool>,
+    pub max_notif_produce:        Option<u8>,
+    pub max_pull_points:          Option<u8>,
+    pub persist_notif_store:      Option<bool>,
+}
+
 pub fn parse_device_type(dev_type: String) -> DeviceTypes {
     match dev_type {
         a if a.contains("NetworkVideoTransmitter") => DeviceTypes::Camera,

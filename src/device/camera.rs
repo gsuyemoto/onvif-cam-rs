@@ -6,12 +6,13 @@ use async_trait::async_trait;
 
 #[rustfmt::skip]
 pub struct Camera {
-    base:             Device,
-    capabilities:     Capabilities,
-    profiles:         Profiles,
-    device_info:      DeviceInfo,
-    pub stream:       StreamUri,
-    services:         Services,
+    base:              Device,
+    capabilities:      Capabilities,
+    profiles:          Profiles,
+    device_info:       DeviceInfo,
+    pub stream:        StreamUri,
+    services:          Services,
+    event_capables:    EventCapabilities,
 }
 
 #[async_trait]
@@ -35,7 +36,7 @@ impl CameraBuilder for Camera {
         // Get the EVENT SERVICES Url to send request for EVENT pull point
         let url               = self.services.event.as_ref().unwrap();
         let event_url         = url::Url::parse(&url)?;
-        _                     = Camera::set_service_capabilities(event_url).await?;
+        self.event_capables   = Camera::set_service_capabilities(event_url).await?;
 
         Ok(())
     }
@@ -50,6 +51,7 @@ impl Camera {
             device_info: DeviceInfo::default(),
             stream: StreamUri::default(),
             services: Services::default(),
+            event_capables: EventCapabilities::default(),
         }
     }
 }
@@ -75,6 +77,7 @@ impl From<&str> for Camera {
             device_info: DeviceInfo::default(),
             stream: StreamUri::default(),
             services: Services::default(),
+            event_capables: EventCapabilities::default(),
         }
     }
 }

@@ -1,4 +1,4 @@
-use crate::device::{Services, Capabilities, DeviceInfo, Profiles, StreamUri};
+use crate::device::{Services, Capabilities, DeviceInfo, Profiles, StreamUri, EventCapabilities};
 use crate::utils::parse_soap;
 use crate::client::{self, Messages};
 
@@ -12,11 +12,11 @@ pub trait CameraBuilder {
     async fn set_capabilities(onvif_url: url::Url) -> Result<Capabilities> {
         let response              = client::send(onvif_url, Messages::Capabilities).await?;
         let response              = response.bytes().await?;
-        let mut media_service     = parse_soap(&response[..], "XAddr", Some("Media"),       true);
-        let mut event_service     = parse_soap(&response[..], "XAddr", Some("Events"),      true);
-        let mut analytics_service = parse_soap(&response[..], "XAddr", Some("Analytics"),   true);
-        let mut ptz_service       = parse_soap(&response[..], "XAddr", Some("PTZ"),         true);
-        let mut image_service     = parse_soap(&response[..], "XAddr", Some("Imaging"),     true);
+        let mut media_service     = parse_soap(&response[..], "XAddr", Some("Media"),       true, false);
+        let mut event_service     = parse_soap(&response[..], "XAddr", Some("Events"),      true, false);
+        let mut analytics_service = parse_soap(&response[..], "XAddr", Some("Analytics"),   true, false);
+        let mut ptz_service       = parse_soap(&response[..], "XAddr", Some("PTZ"),         true, false);
+        let mut image_service     = parse_soap(&response[..], "XAddr", Some("Imaging"),     true, false);
 
         info!("media_service: {}", media_service[0]);
         info!("event_service: {}", event_service[0]);
@@ -38,11 +38,11 @@ pub trait CameraBuilder {
     async fn set_device_info(onvif_url: url::Url) -> Result<DeviceInfo> {
         let response                 = client::send(onvif_url, Messages::DeviceInfo).await?;
         let response                 = response.bytes().await?;
-        let mut firmware_version     = parse_soap(&response[..], "FirmwareVersion",  None, true);
-        let mut serial_number        = parse_soap(&response[..], "SerialNumber",     None, true);
-        let mut hardware_id          = parse_soap(&response[..], "HardwareId",       None, true);
-        let mut model                = parse_soap(&response[..], "Model",            None, true);
-        let mut manufacturer         = parse_soap(&response[..], "Manufacturer",     None, true);
+        let mut firmware_version     = parse_soap(&response[..], "FirmwareVersion",  None, true, false);
+        let mut serial_number        = parse_soap(&response[..], "SerialNumber",     None, true, false);
+        let mut hardware_id          = parse_soap(&response[..], "HardwareId",       None, true, false);
+        let mut model                = parse_soap(&response[..], "Model",            None, true, false);
+        let mut manufacturer         = parse_soap(&response[..], "Manufacturer",     None, true, false);
 
         info!("Manufacturer: {}", manufacturer[0]);
         info!("Model: {}", model[0]);
@@ -61,11 +61,11 @@ pub trait CameraBuilder {
     async fn set_profiles(onvif_url: url::Url) -> Result<Profiles> {
         let response              = client::send(onvif_url, Messages::Profiles).await?;
         let response              = response.bytes().await?;
-        let width                 = parse_soap(&response[..], "Width",          None,                                 true);
-        let height                = parse_soap(&response[..], "Height",         None,                                 true);
-        let mut video_codec       = parse_soap(&response[..], "Encoding",       Some("VideoEncoderConfiguration"),    true);
-        let mut audio_codec       = parse_soap(&response[..], "Encoding",       Some("AudioEncoderConfiguration"),    true);
-        let mut h264_profile      = parse_soap(&response[..], "H264Profile",    None,                                 true);
+        let width                 = parse_soap(&response[..], "Width",          None,                                 true, false);
+        let height                = parse_soap(&response[..], "Height",         None,                                 true, false);
+        let mut video_codec       = parse_soap(&response[..], "Encoding",       Some("VideoEncoderConfiguration"),    true, false);
+        let mut audio_codec       = parse_soap(&response[..], "Encoding",       Some("AudioEncoderConfiguration"),    true, false);
+        let mut h264_profile      = parse_soap(&response[..], "H264Profile",    None,                                 true, false);
 
         info!("Video Codec: {}", video_codec[0]);
         info!("Audio Codec: {}", audio_codec[0]);
@@ -89,9 +89,9 @@ pub trait CameraBuilder {
     async fn set_stream_uri(onvif_url: url::Url) -> Result<StreamUri> {
         let response                      = client::send(onvif_url, Messages::GetStreamURI).await?;
         let response                      = response.bytes().await?;
-        let mut invalid_after_connect     = parse_soap(&response[..], "InvalidAfterConnect", None, true);
-        let mut timeout                   = parse_soap(&response[..], "Timeout",             None, true);
-        let mut url_string                = parse_soap(&response[..], "Uri",                 None, true);
+        let mut invalid_after_connect     = parse_soap(&response[..], "InvalidAfterConnect", None, true, false);
+        let mut timeout                   = parse_soap(&response[..], "Timeout",             None, true, false);
+        let mut url_string                = parse_soap(&response[..], "Uri",                 None, true, false);
 
         info!("RTSP URL: {}", url_string[0]);
         
@@ -107,7 +107,7 @@ pub trait CameraBuilder {
     async fn set_services(onvif_url: url::Url) -> Result<Services> {
         let response         = client::send(onvif_url, Messages::GetServices).await?;
         let response         = response.bytes().await?;
-        let services         = parse_soap(&response[..], "XAddr", None, false);
+        let services         = parse_soap(&response[..], "XAddr", None, false, false);
         let mut result       = Services::default(); 
 
         for service in services {
@@ -128,16 +128,46 @@ pub trait CameraBuilder {
         Ok(result)
     }
 
-    #[rustfmt::skip]
-    async fn set_service_capabilities(onvif_url: url::Url) -> Result<()> {
+    async fn set_service_capabilities(onvif_url: url::Url) -> Result<EventCapabilities> {
         debug!("Event Service URL: {onvif_url}");
-        let response                      = client::send(onvif_url, Messages::GetServiceCapabilities).await?;
-        // let response                      = response.bytes().await?;
-        let response                      = response.text().await?;
+        let response         = client::send(onvif_url, Messages::GetServiceCapabilities).await?;
+        let resp1            = response.text().await?;
+        let resp2            = resp1.as_bytes();
+        let capabilities     = parse_soap(&resp2[..], "Capabilities", None, true, true);
+        let mut result       = EventCapabilities::default();
 
-        debug!("Get EVENT capabilities: \n{response}");
+        // debug!("Get EVENT capabilities: \n{resp1}");
 
-        Ok(())
+        capabilities[0]
+            .split(" ")
+            .map(|s| s.split_once('=').unwrap())
+            .collect::<Vec<(&str, &str)>>()
+            .iter()
+            .for_each(|v| {
+                match v.0 {
+                    k if k.contains("PausableSubscription")
+                        => result.pause_support = v.1.parse().ok(),
+                    
+                    k if k.contains("PullPointSupport")
+                        => result.pull_point_supoort = v.1.parse().ok(),
+                    
+                    k if k.contains("PolicySupport")
+                        => result.sub_policy_support = v.1.parse().ok(),
+                    
+                    k if k.contains("MaxNotification")
+                        => result.max_notif_produce = v.1.parse().ok(),
+                    
+                    k if k.contains("MaxNullPoints")
+                        => result.max_pull_points = v.1.parse().ok(),
+                    
+                    k if k.contains("NotificationStorage")
+                        => result.persist_notif_store = v.1.parse().ok(),
+
+                    _   => eprintln!("Unknown key pair for capabilities"),
+                }
+        });
+
+        Ok(result)
     }
 
     #[rustfmt::skip]

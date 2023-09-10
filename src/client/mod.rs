@@ -111,15 +111,16 @@ pub async fn discover() -> Result<Vec<Device>> {
 
                             // The SOAP response should provide an XAddrs which will be the
                             // ONVIF URL of the device that responded
-                            let xaddrs = parse_soap(&buf[..size], "XAddrs", None, true);
+                            let xaddrs = parse_soap(&buf[..size], "XAddrs", None, true, false);
                             let url_onvif: Url = xaddrs[0].parse()?;
 
                             // Get device type
-                            let mut device_type = parse_soap(&buf[..size], "Types", None, true);
+                            let mut device_type =
+                                parse_soap(&buf[..size], "Types", None, true, false);
                             let device_type = parse_device_type(device_type.remove(0));
 
                             // Get scope list
-                            let scopes = parse_soap(&buf[..size], "Scopes", None, true);
+                            let scopes = parse_soap(&buf[..size], "Scopes", None, true, false);
                             let scopes = scopes[0]
                                 .split(' ')
                                 .map(|s| s.to_string())

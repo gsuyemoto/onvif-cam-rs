@@ -1,3 +1,4 @@
+use log::debug;
 use std::io::BufReader;
 use xml::reader::{EventReader, XmlEvent};
 
@@ -5,7 +6,8 @@ pub fn parse_soap(
     response: &[u8],
     element_to_find: &str,
     parent: Option<&str>,
-    only_once: bool,
+    is_single: bool,
+    is_attributes: bool,
 ) -> Vec<String> {
     let mut element_found = false;
     let mut result = Vec::new();
@@ -20,27 +22,44 @@ pub fn parse_soap(
 
     for e in parser {
         match e {
-            Ok(XmlEvent::StartElement { name, .. }) => {
+            Ok(XmlEvent::StartElement {
+                name, attributes, ..
+            }) => {
                 let element = name.local_name;
 
                 if !parent_found && element == parent.unwrap() {
+                    debug!("Start PARENT element found: {element}");
                     parent_found = true;
                 }
 
                 if parent_found && element == element_to_find {
+                    debug!("START element found: {element}");
                     element_found = true;
+                }
+
+                if element_found && !attributes.is_empty() && is_attributes {
+                    let attrs: Vec<_> = attributes
+                        .iter()
+                        .map(|a| format!("{}={:?}", &a.name, a.value))
+                        .collect();
+
+                    return attrs;
                 }
             }
             Ok(XmlEvent::EndElement { name, .. }) => {
-                if element_found && name.local_name == element_to_find {
+                let element = name.local_name;
+
+                if element_found && element == element_to_find {
+                    debug!("END element found: {element}");
                     element_found = false;
                 }
             }
             Ok(XmlEvent::Characters(chars)) => {
-                if element_found {
+                if !is_attributes && element_found {
+                    debug!("CHARS found: {chars}");
                     result.push(chars);
 
-                    if only_once {
+                    if is_single {
                         break;
                     }
                 }
