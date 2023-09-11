@@ -1,8 +1,8 @@
-use crate::device::{Services, Capabilities, DeviceInfo, Profiles, StreamUri, EventCapabilities};
+use crate::device::{Services, Capabilities, DeviceInfo, Profiles, StreamUri, EventCapabilities, ServiceCapabilities, AnalyticsConfigList};
 use crate::utils::parse_soap;
 use crate::client::{self, Messages};
 
-use log::{trace, debug, info};
+use log::{error, trace, debug, info};
 use anyhow::Result;
 use async_trait::async_trait;
 
@@ -115,61 +115,101 @@ pub trait CameraBuilder {
             
             // Match Service URL Address by keywords
             match &service {
-                s if s.contains("analytics")    => result.analytics    = Some(service.clone()),
-                s if s.contains("event")        => result.event        = Some(service.clone()),
-                s if s.contains("deviceIO")     => result.io           = Some(service.clone()),
-                s if s.contains("imaging")      => result.imaging      = Some(service.clone()),
-                s if s.contains("media")        => result.media        = Some(service.clone()),
-                s if s.contains("ptz")          => result.ptz          = Some(service.clone()),
-                _ => eprintln!("[Builder[Camera] Encountered unknown Service"),
+                s if s.contains("device_service")    =>(),
+                s if s.contains("analytics")         => result.analytics    = Some(service.clone()),
+                s if s.contains("event")             => result.event        = Some(service.clone()),
+                s if s.contains("deviceIO")          => result.io           = Some(service.clone()),
+                s if s.contains("imaging")           => result.imaging      = Some(service.clone()),
+                s if s.contains("media_service")     => result.media        = Some(service.clone()),
+                s if s.contains("media2")            => result.media2       = Some(service.clone()),
+                s if s.contains("ptz")               => result.ptz          = Some(service.clone()),
+                _ => error!("Encountered unknown Service"),
             }
         }
 
         Ok(result)
     }
 
-    async fn set_service_capabilities(onvif_url: url::Url) -> Result<EventCapabilities> {
+    async fn set_service_capabilities<T>(onvif_url: url::Url) -> Result<T>
+    where
+        T: ServiceCapabilities + Default
+    {
         debug!("Event Service URL: {onvif_url}");
         let response         = client::send(onvif_url, Messages::GetServiceCapabilities).await?;
         let resp1            = response.text().await?;
         let resp2            = resp1.as_bytes();
         let capabilities     = parse_soap(&resp2[..], "Capabilities", None, true, true);
-        let mut result       = EventCapabilities::default();
+        let mut result       = T::default();
 
-        // debug!("Get EVENT capabilities: \n{resp1}");
+        // debug!("Get capabilities: \n{resp1}");
 
         capabilities[0]
             .split(" ")
             .map(|s| s.split_once('=').unwrap())
             .collect::<Vec<(&str, &str)>>()
             .iter()
-            .for_each(|v| {
-                match v.0 {
-                    k if k.contains("PausableSubscription")
-                        => result.pause_support = v.1.parse().ok(),
-                    
-                    k if k.contains("PullPointSupport")
-                        => result.pull_point_supoort = v.1.parse().ok(),
-                    
-                    k if k.contains("PolicySupport")
-                        => result.sub_policy_support = v.1.parse().ok(),
-                    
-                    k if k.contains("MaxNotification")
-                        => result.max_notif_produce = v.1.parse().ok(),
-                    
-                    k if k.contains("MaxNullPoints")
-                        => result.max_pull_points = v.1.parse().ok(),
-                    
-                    k if k.contains("NotificationStorage")
-                        => result.persist_notif_store = v.1.parse().ok(),
+            .for_each(|v| result.set_prop_with_pair(*v));
 
-                    _   => eprintln!("Unknown key pair for capabilities"),
-                }
-        });
+        Ok(result)
+    }
+    
+    #[rustfmt::skip]
+    async fn set_analytics_configurations(onvif_url: url::Url) -> Result<AnalyticsConfigList> {
+        let response         = client::send(onvif_url, Messages::GetAnalyticsConfigurations).await?;
+        let resp1            = response.text().await?;
+        // let resp2            = resp1.as_bytes();
+        // let capabilities     = parse_soap(&resp2[..], "Capabilities", None, true, true);
+        let mut result       = AnalyticsConfigList::default(); 
+
+        debug!("Get analytics configs: \n{resp1}");
 
         Ok(result)
     }
 
+    #[rustfmt::skip]
+    async fn set_event_properties(onvif_url: url::Url) -> Result<()> {
+        let response         = client::send(onvif_url, Messages::GetEventProperties).await?;
+        let resp1            = response.text().await?;
+        // let resp2            = resp1.as_bytes();
+        // let capabilities     = parse_soap(&resp2[..], "Capabilities", None, true, true);
+
+        debug!("Get event properties: \n{resp1}");
+
+        Ok(())
+    }
+
+    #[rustfmt::skip]
+    async fn set_event_brokers(onvif_url: url::Url) -> Result<()> {
+        let response         = client::send(onvif_url, Messages::GetEventBrokers).await?;
+        // let response                      = response.bytes().await?;
+        let response                      = response.text().await?;
+
+        debug!("Get Event Brokers: \n{response}");
+
+        Ok(())
+    }
+
+    #[rustfmt::skip]
+    async fn pull_messages(onvif_url: url::Url) -> Result<()> {
+        let response         = client::send(onvif_url, Messages::PullMessages).await?; // let response                      = response.bytes().await?;
+        let response                      = response.text().await?;
+
+        debug!("Pull Event Messages: \n{response}");
+
+        Ok(())
+    }
+    
+    #[rustfmt::skip]
+    async fn set_service_profiles(onvif_url: url::Url) -> Result<()> {
+        let response                      = client::send(onvif_url, Messages::GetProfiles).await?;
+        // let response                      = response.bytes().await?;
+        let response                      = response.text().await?;
+
+        debug!("Get Profiles: \n{response}");
+
+        Ok(())
+    }
+    
     #[rustfmt::skip]
     async fn set_dns(onvif_url: url::Url) -> Result<()> {
         let response                      = client::send(onvif_url, Messages::GetDNS).await?;

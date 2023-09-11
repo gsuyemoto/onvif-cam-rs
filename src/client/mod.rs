@@ -34,6 +34,11 @@ pub enum Messages {
     GetGeoLocation,
     GetStorageConfigurations,
     CreatePullPointSubscriptionRequest,
+    GetAnalyticsConfigurations,
+    GetEventProperties,
+    GetProfiles,
+    GetEventBrokers,
+    PullMessages,
 }
 
 /// Sends a multicast request via raw udpsocket on LAN.
@@ -388,7 +393,45 @@ pub fn soap_msg(msg_type: &Messages, uuid: Uuid) -> String {
         Messages::CreatePullPointSubscriptionRequest => format!(
             "
                 {prefix}
-                <wsnt:CreatePullPointSubscription/>
+                <tev:CreatePullPointSubscription/>
+                {suffix}
+            "
+        ),
+        Messages::GetAnalyticsConfigurations => format!(
+            "
+                {prefix}
+                <tns:GetAnalyticsConfigurations/>
+                {suffix}
+            "
+        ),
+        Messages::GetEventProperties => format!(
+            "
+                {prefix}
+                <tds:GetEventProperties/>
+                {suffix}
+            "
+        ),
+        Messages::GetProfiles => format!(
+            "
+                {prefix}
+                <tr2:GetProfiles/>
+                {suffix}
+            "
+        ),
+        Messages::GetEventBrokers => format!(
+            "
+                {prefix}
+                <tds:GetEventBrokers/>
+                {suffix}
+            "
+        ),
+        Messages::PullMessages => format!(
+            "
+                {prefix}
+                <wsnt:PullMessages>
+                    <wsnt:Timeout>PT5S</wsnt:Timeout>
+                    <wsnt:MessageLimit>10</wsnt:MessageLimit>
+                </wsnt:PullMessages>
                 {suffix}
             "
         ),

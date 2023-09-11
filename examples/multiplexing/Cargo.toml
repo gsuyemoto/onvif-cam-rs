@@ -1,5 +1,5 @@
 [package]
-name = "ip-cam-haar"
+name = "multiplexing"
 version = "0.1.0"
 edition = "2021"
 

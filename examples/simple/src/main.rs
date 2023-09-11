@@ -18,12 +18,7 @@ async fn main() -> Result<()> {
     //     cameras.push(camera);
     // }
 
-    // match &cameras[0].stream.uri {
-    //     Some(url) => println!("Stream uri: {url}"),
-    //     None => panic!("Ooops"),
-    // }
-
-    let mut camera = Camera::from("http://192.168.86.218:8080/onvif/device_service");
+    let mut camera = Camera::from("http://192.168.86.200:8080/onvif/device_service");
     camera.build_all().await?;
 
     Ok(())
